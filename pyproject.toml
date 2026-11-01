@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-imsg"
+version = "0.1.0.dev0"
+description = "iMessage for Hermes Agent through imsg: JSON-RPC over a local child or one SSH connection."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "pateac" }]
+keywords = ["hermes", "hermes-agent", "imessage", "imsg", "plugin"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: AsyncIO",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=9.2", "ruff>=0.17", "mypy>=2.4"]
+
+[project.urls]
+Homepage = "https://github.com/pateac/hermes-imsg"
+Issues = "https://github.com/pateac/hermes-imsg/issues"
+Changelog = "https://github.com/pateac/hermes-imsg/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hermes_imsg"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# The fake also runs under a system python3 (3.9+) behind sshd.
+"tests/fake_imsg/*" = ["UP017"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["hermes_imsg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error"]
