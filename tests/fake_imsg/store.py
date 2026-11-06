@@ -103,6 +103,8 @@ class FakeDB:
             "text": text,
             "created_at": now(),
             "attachments": [],
+            "reactions": [],
+            "destination_caller_id": ME,  # present on every row of the Nov 5 Mac
             **extra,
         }
         cur = self.conn.execute(

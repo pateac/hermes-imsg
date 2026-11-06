@@ -1,11 +1,13 @@
-"""A stand-in for `imsg rpc` (imsg 0.20.0 `docs/rpc.md`) so tests need no Mac.
+"""A stand-in for `imsg rpc` (imsg 0.21.0 `docs/rpc.md`) so tests need no Mac.
 
 It speaks the same newline-delimited JSON-RPC 2.0 on stdin/stdout, with the
 same strictness: unknown params and wrong types are rejected with -32602, as
 imsg does, so a client bug shows up here rather than on the Mac. It is a
 protocol stand-in, not an emulator: methods it does not implement answer
 -32601 saying so, and the shapes below follow imsg's docs and source as read
-on Nov 1, 2026. Where imsg's behaviour was not confirmed (a send to an unknown
+on Nov 1, 2026, checked against a real imsg 0.21.0 on Nov 5 (docs/phase0-check.md).
+Error codes and messages match imsg; the wording of error `data` does not, so
+match on codes. Where imsg's behaviour was not confirmed (a send to an unknown
 chat GUID), the fake picks the documented bridge behaviour and says so.
 
 State lives in a SQLite file (`--db PATH`, as `imsg rpc --db`, or the
@@ -24,7 +26,7 @@ from typing import Any
 
 from .store import FakeDB
 
-VERSION = "0.20.0-fake"
+VERSION = "0.21.0-fake"
 
 PARAMS: dict[str, dict[str, type]] = {
     "initialize": {"protocol_version": int},
@@ -91,6 +93,14 @@ BRIDGE_MUTATIONS = {
     "chats.create",
 }
 BRIDGE_READS = {"handles.check", "bridge.events.subscribe"}
+FEATURES = (
+    "unread_state",
+    "scheduled_messages",
+    "reactions",
+    "reply_context",
+    "routing_metadata",
+    "balloon_payloads",
+)  # all true on the Nov 5 Mac
 BRIDGE_DOWN = "The bridge is not started. Run imsg launch explicitly before using bridge methods."
 
 
@@ -258,7 +268,9 @@ class Server:
         if bridge_ready:
             methods += sorted(BRIDGE_MUTATIONS | BRIDGE_READS)
         database: dict[str, Any] = {"path": self.db.path, "ready": db_ready}
-        if not db_ready:
+        if db_ready:
+            database["features"] = dict.fromkeys(FEATURES, True)
+        else:
             database["error"] = "unable to open database file"
         bridge: dict[str, Any] = {"ready": bridge_ready}
         if not bridge_ready:
