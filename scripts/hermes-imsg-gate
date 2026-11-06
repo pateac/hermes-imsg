@@ -1,0 +1,57 @@
+#!/bin/sh
+# hermes-imsg gate: the only command the hermes-imsg SSH key may run on the Mac (SECURITY.md).
+#
+# In ~/.ssh/authorized_keys of the Mac user signed into Messages:
+#   from="<hermes host>",restrict,command="/Users/<user>/.local/bin/hermes-imsg-gate" ssh-ed25519 ...
+#
+# sshd puts what the client asked for in SSH_ORIGINAL_COMMAND. Arguments are base64, so no
+# path or file name is ever parsed by a shell.
+#   fetch <b64 path>  the bytes of one file under ~/Library/Messages/Attachments, nothing else
+#   put <b64 name>    store stdin (at most HERMES_IMSG_MAX_PUT bytes) in a fresh outbox folder,
+#                     print its path; `imsg send` then attaches it. Day-old folders are removed.
+#   anything else     imsg rpc
+set -eu
+set -f  # no glob expansion of the client's words
+
+ATTACHMENTS="$HOME/Library/Messages/Attachments"
+OUTBOX="$HOME/Library/Caches/hermes-imsg/outbox"
+MAX_PUT="${HERMES_IMSG_MAX_PUT:-104857600}"  # 100 MB; set it in the key line to lower it
+PATH="$PATH:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin"  # sshd's PATH lacks these
+
+refuse() { echo "hermes-imsg-gate: $*" >&2; exit 77; }
+decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || refuse "bad argument"; }
+
+fetch() {
+    path=$(decode "$1")
+    real=$(realpath -- "$path" 2>/dev/null) || refuse "no such file"
+    root=$(realpath -- "$ATTACHMENTS" 2>/dev/null) || refuse "no Messages attachments folder"
+    case "$real" in
+        "$root"/*) ;;
+        *) refuse "refused: not under Messages attachments" ;;
+    esac
+    [ -f "$real" ] || refuse "not a file"
+    exec cat -- "$real"
+}
+
+put() {
+    name=$(decode "$1" | tr -cd 'A-Za-z0-9._ -' | cut -c1-120)
+    case "$name" in '' | .*) name="attachment$name" ;; esac
+    mkdir -p "$OUTBOX"
+    find "$OUTBOX" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
+    dir=$(mktemp -d "$OUTBOX/XXXXXXXX")
+    head -c "$((MAX_PUT + 1))" > "$dir/$name"
+    size=$(wc -c < "$dir/$name" | tr -d ' ')
+    if [ "$size" -gt "$MAX_PUT" ]; then
+        rm -rf "$dir"
+        refuse "file larger than $MAX_PUT bytes"
+    fi
+    printf '%s\n' "$dir/$name"
+}
+
+# shellcheck disable=SC2086  # split on purpose: a verb and one base64 word; globbing is off
+set -- ${SSH_ORIGINAL_COMMAND:-}
+case "${1:-}" in
+    fetch) [ $# -eq 2 ] || refuse "usage: fetch <base64 path>"; fetch "$2" ;;
+    put) [ $# -eq 2 ] || refuse "usage: put <base64 name>"; put "$2" ;;
+    *) exec imsg rpc ;;
+esac

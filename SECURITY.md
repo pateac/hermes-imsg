@@ -14,17 +14,34 @@ Supported versions: the latest release only (none yet; phase 1 is pre-release).
 Mac, which means reading every message in Messages and sending as that account. Treat the key
 like the account's password.
 
-**Pin the key to one command and one host.** In `~/.ssh/authorized_keys` on the Mac, with the
-Hermes host's fixed address and the path that `command -v imsg` prints:
+**Pin the key to one host and the gate.** Copy `scripts/hermes-imsg-gate` to the Mac (for example
+`~/.local/bin/hermes-imsg-gate`, mode 755) and, in `~/.ssh/authorized_keys` of the Mac user
+signed into Messages, give the key the Hermes host's fixed address and the gate:
 
 ```
-from="192.0.2.10",restrict,command="/opt/homebrew/bin/imsg rpc" ssh-ed25519 AAAA... hermes-imsg
+from="192.0.2.10",restrict,command="/Users/me/.local/bin/hermes-imsg-gate" ssh-ed25519 AAAA... hermes-imsg
 ```
 
 `from=` refuses the key from any other address; `restrict` turns off port, agent and X11
-forwarding and PTY allocation; `command=` makes sshd run `imsg rpc` whatever the client asks for.
-The test suite checks this form against a real `sshd`, and it was checked on a real Mac on Nov 5
-([phase 0](docs/phase0-check.md)): a request for any other command runs `imsg rpc` instead.
+forwarding and PTY allocation; `command=` makes sshd run the gate whatever the client asks for.
+The gate is a short `sh` script; read it before installing. It does exactly three things:
+
+- **`imsg rpc`**, for anything not listed below. The key cannot run any other command.
+- **`fetch`**: the bytes of one file whose real path (symlinks and `..` resolved) is under
+  `~/Library/Messages/Attachments`. Nothing else on the disk.
+- **`put`**: stores one incoming file, at most 100 MB (`HERMES_IMSG_MAX_PUT=<bytes>` before the
+  gate's path in the key line lowers it), under a cleaned-up name, in a fresh folder in
+  `~/Library/Caches/hermes-imsg/outbox`, and prints its path for `imsg send`. Folders older than a
+  day are removed. It writes nowhere else.
+
+Arguments arrive base64-encoded, so no path or file name is ever parsed by a shell. The key could
+already read every message through `imsg rpc`; the gate adds the attachments of those messages and
+a place to stage outgoing ones, and nothing beyond Messages. The test suite checks all of this
+against a real `sshd`, including symlink and `..` escapes, shell syntax in names, and the size cap.
+
+The key line `restrict,command="<path to imsg> rpc"` (no gate) also works, for text only: files
+then fail with an error naming the gate. That form was checked on a real Mac on Nov 5
+([phase 0](docs/phase0-check.md)).
 
 Remote Login must allow the Mac user (System Settings → General → Sharing → Remote Login →
 Allow access for). macOS lists only Administrators by default, and a standard user missing from

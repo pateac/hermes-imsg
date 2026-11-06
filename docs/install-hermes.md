@@ -1,8 +1,18 @@
 # Install in Hermes
 
 Tested against Hermes Agent **v2026.9.24**. The Mac side comes first: `imsg` installed, Full Disk
-Access granted, and for the SSH transport a key pinned to `imsg rpc`
-([phase 0](phase0-check.md), [SECURITY.md](../SECURITY.md)).
+Access granted ([phase 0](phase0-check.md)), and for the SSH transport the gate script installed
+and the key pinned to it ([SECURITY.md](../SECURITY.md)):
+
+```bash
+# on the Mac, as the user signed into Messages, from a checkout of this repository
+install -m 755 scripts/hermes-imsg-gate ~/.local/bin/hermes-imsg-gate
+```
+
+```
+# ~/.ssh/authorized_keys on the Mac: the Hermes host's address, then the gate
+from="192.0.2.10",restrict,command="/Users/me/.local/bin/hermes-imsg-gate" ssh-ed25519 AAAA... hermes-imsg
+```
 
 ## 1. Make the plugin loadable
 
@@ -91,14 +101,15 @@ To go live, unset it. The cursor carries over, so the switch does not replay the
   at or below it are dropped. The very first start begins at the newest message, with no history.
 - **Sends** are plain text (markdown stripped), split at 4,000 characters, and rate limited. A
   send that may have reached the recipient is never retried.
+- **Files both ways.** Inbound photos, audio and documents are copied into Hermes's media cache
+  (over SSH through the gate's `fetch`; the Mac's copies are never moved). Outbound images,
+  documents, audio and video are placed on the Mac (the gate's `put`) and sent with `imsg send`.
+  Audio goes as a file; a native voice bubble needs the helper (v0.2).
 - **Health**: `imsg status` is checked every minute; a child that stops answering is restarted,
   and an unreadable Messages database is logged.
 
 ## Not yet
 
-- **Attachments over SSH.** The pinned key runs only `imsg rpc`, which reports a file's path on the
-  Mac, not its bytes. Inbound files are fetched only with the local transport; over SSH the agent
-  sees "(attachment)". Outbound files are local-transport only too.
 - **Sends over SSH** have not been tried on a real Mac: the first one needs a person at the Mac to
   allow an Automation prompt.
 - **Reactions, threaded replies and creating polls** need `imsg`'s helper, which needs SIP off

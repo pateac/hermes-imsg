@@ -25,6 +25,7 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y -q openssh-server openssh-client
       - run: pip install -e ".[dev]"
       - run: ruff check .
+      - run: shellcheck -s sh scripts/hermes-imsg-gate
       - run: ruff format --check .
       - run: mypy
       - run: pytest

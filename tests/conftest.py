@@ -18,6 +18,7 @@ from fake_imsg.store import FakeDB
 from hermes_imsg.transport import LocalTransport
 
 FAKE_IMSG = str(Path(__file__).parent / "fake_imsg" / "imsg")
+GATE = str(Path(__file__).parent.parent / "scripts" / "hermes-imsg-gate")
 T = TypeVar("T")
 
 
@@ -56,7 +57,9 @@ def _keygen(path: Path) -> str:
 
 @pytest.fixture(scope="session")
 def sshd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SimpleNamespace]:
-    """A throwaway sshd on 127.0.0.1 whose only key is forced to run the fake imsg."""
+    """A throwaway sshd on 127.0.0.1 with two keys: one forced to run the fake imsg, and one
+    forced to the gate script (as on the Mac), which finds the fake as `imsg` on PATH and
+    serves attachments from a stand-in home folder."""
     sshd_bin = shutil.which("sshd") or "/usr/sbin/sshd"
     if not (os.path.exists(sshd_bin) and shutil.which("ssh") and shutil.which("ssh-keygen")):
         if os.environ.get("HERMES_IMSG_REQUIRE_SSH"):
@@ -68,7 +71,16 @@ def sshd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SimpleNamespace]:
     db = FakeDB(d / "chat.db")
     # The line SECURITY.md recommends, pointed at the fake instead of /opt/homebrew/bin/imsg.
     forced = f'from="127.0.0.1",restrict,command="{FAKE_IMSG} rpc --db {db.path}" {client_pub}\n'
-    (d / "authorized_keys").write_text(forced)
+    gated_pub = _keygen(d / "gated_key")
+    home = d / "home"
+    (home / "Library" / "Messages" / "Attachments").mkdir(parents=True)
+    shim = d / "shim"
+    shim.mkdir()
+    (shim / "imsg").write_text(f'#!/bin/sh\nexec {FAKE_IMSG} "$@" --db {db.path}\n')
+    (shim / "imsg").chmod(0o755)
+    gate_env = f"HOME={home} PATH={shim}:/usr/bin:/bin HERMES_IMSG_MAX_PUT=4096"
+    gated = f'from="127.0.0.1",restrict,command="{gate_env} {GATE}" {gated_pub}\n'
+    (d / "authorized_keys").write_text(forced + gated)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -96,7 +108,14 @@ def sshd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SimpleNamespace]:
                 proc.kill()
                 pytest.fail(f"sshd did not start (exit {proc.poll()})")
             time.sleep(0.05)
-    yield SimpleNamespace(dir=d, db=db, key=str(d / "client_key"), config=str(d / "ssh_config"))
+    yield SimpleNamespace(
+        dir=d,
+        db=db,
+        key=str(d / "client_key"),
+        gated_key=str(d / "gated_key"),
+        home=home,
+        config=str(d / "ssh_config"),
+    )
     proc.terminate()
     proc.wait(5)
     db.close()

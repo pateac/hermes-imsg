@@ -276,20 +276,11 @@ def test_local_attachments_are_copied_into_hermes_cache(db: FakeDB, tmp_path: Pa
     assert picture.exists()  # the Mac's copy is never moved
 
 
-def test_over_ssh_text_flows_and_attachments_stay_on_the_mac(
-    ssh: SimpleNamespace, tmp_path: Path
-) -> None:
-    chat = ssh.db.add_chat(COLE)
-    config = PlatformConfig(
-        enabled=True,
-        extra={
-            "host": "fakemac",
-            "ssh_config": ssh.config,
-            "identity_file": ssh.key,
-            "imsg_path": FAKE_IMSG,
-            "state_dir": str(tmp_path / "state"),
-        },
-    )
+def _ssh_adapter(ssh: SimpleNamespace, tmp_path: Path, key: str) -> tuple[ImsgAdapter, list[Any]]:
+    config = PlatformConfig(enabled=True, extra={
+        "host": "fakemac", "ssh_config": ssh.config, "identity_file": key,
+        "imsg_path": FAKE_IMSG, "state_dir": str(tmp_path / "state"), "sends_per_minute": 6000,
+    })  # fmt: skip
     adapter = ImsgAdapter(config)
     seen: list[Any] = []
 
@@ -297,6 +288,57 @@ def test_over_ssh_text_flows_and_attachments_stay_on_the_mac(
         seen.append(event)
 
     adapter.handle_message = record  # type: ignore[method-assign]
+    return adapter, seen
+
+
+def test_over_ssh_files_go_both_ways_through_the_gate(ssh: SimpleNamespace, tmp_path: Path) -> None:
+    from PIL import Image
+
+    chat = ssh.db.add_chat(COLE)
+    folder = ssh.home / "Library" / "Messages" / "Attachments" / "cd" / "34"
+    folder.mkdir(parents=True, exist_ok=True)
+    picture = folder / "IMG 0002.png"
+    Image.new("RGB", (4, 4), "blue").save(picture)
+    inbound = {
+        "filename": picture.name,
+        "transfer_name": picture.name,
+        "mime_type": "image/png",
+        "total_bytes": picture.stat().st_size,
+        "original_path": str(picture),
+        "missing": False,
+    }
+    outgoing = tmp_path / "report.pdf"
+    outgoing.write_bytes(b"%PDF-1.4 tiny")
+    adapter, seen = _ssh_adapter(ssh, tmp_path, ssh.gated_key)
+
+    async def scenario() -> tuple[Any, Any]:
+        await connected(adapter)
+        ssh.db.add_message(chat["id"], "over ssh")
+        ssh.db.add_message(chat["id"], "", attachments=[inbound])
+        await eventually(lambda: len(seen) == 2)
+        text = await adapter.send(chat["guid"], "reply over ssh")
+        doc = await adapter.send_document(chat["guid"], str(outgoing), caption="the report")
+        await adapter.disconnect()
+        return text, doc
+
+    text, doc = run(scenario())
+    assert [e.text for e in seen] == ["over ssh", "(attachment)"]
+    (cached,) = seen[1].media_urls
+    assert Path(cached).read_bytes() == picture.read_bytes() and picture.exists()
+    assert seen[1].message_type is MessageType.PHOTO
+    assert text.success and doc.success
+    (file_send,) = [c["params"] for c in ssh.db.calls("send") if "file" in c["params"]]
+    remote = Path(file_send["file"])
+    outbox = ssh.home / "Library" / "Caches" / "hermes-imsg" / "outbox"
+    assert remote.resolve().parent.parent == outbox.resolve()
+    assert remote.name == "report.pdf" and remote.read_bytes() == b"%PDF-1.4 tiny"
+    assert file_send["chat_guid"] == chat["guid"] and file_send["text"] == "the report"
+
+
+def test_over_ssh_without_the_gate_text_still_works_and_files_fail_loudly(
+    ssh: SimpleNamespace, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    chat = ssh.db.add_chat(COLE)
     attachment = {
         "filename": "a.pdf",
         "transfer_name": "a.pdf",
@@ -305,20 +347,23 @@ def test_over_ssh_text_flows_and_attachments_stay_on_the_mac(
         "original_path": "/Users/x/a.pdf",
         "missing": False,
     }
+    outgoing = tmp_path / "a.txt"
+    outgoing.write_text("x")
+    adapter, seen = _ssh_adapter(ssh, tmp_path, ssh.key)  # the key forced to plain imsg rpc
 
     async def scenario() -> Any:
         await connected(adapter)
-        ssh.db.add_message(chat["id"], "over ssh")
         ssh.db.add_message(chat["id"], "", attachments=[attachment])
-        await eventually(lambda: len(seen) == 2)
-        result = await adapter.send(chat["guid"], "reply over ssh")
+        await eventually(lambda: len(seen) == 1)
+        result = await adapter.send_document(chat["guid"], str(outgoing))
         await adapter.disconnect()
         return result
 
-    result = run(scenario())
-    assert [e.text for e in seen] == ["over ssh", "(attachment)"]
-    assert seen[1].media_urls == []
-    assert result.success
+    with caplog.at_level("WARNING", logger="hermes_imsg"):
+        result = run(scenario())
+    assert seen[0].text == "(attachment)" and seen[0].media_urls == []
+    assert "could not read an attachment" in caplog.text
+    assert not result.success and "gate" in (result.error or "")
 
 
 def test_observe_only_records_every_row_once_and_never_sends(db: FakeDB, tmp_path: Path) -> None:

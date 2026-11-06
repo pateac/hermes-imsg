@@ -5,8 +5,9 @@ iMessage for [Hermes Agent](https://github.com/NousResearch/hermes-agent) throug
 stdio. The plugin runs wherever Hermes runs (Linux included) and reaches the Mac over one
 outbound SSH connection. No listener on the Mac, no password in a URL, no webhook to register.
 
-> **Status: pre-release; phase 2 of 5 built, not yet run live.** It is a loadable Hermes plugin
-> for text and reads: receive, send, resume after restarts with nothing missed or doubled, health.
+> **Status: pre-release; phase 2 of 5 built, not yet run live.** It is a loadable Hermes plugin:
+> receive and send text, photos and files (over SSH through a small gate script on the Mac),
+> resume after restarts with nothing missed or doubled, health.
 > CI tests it against Hermes v2026.9.24's real plugin loader and adapter base class, and against a
 > fake `imsg`. On a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), `imsg` itself and this
 > plugin's RPC client were checked locally and over SSH ([phase 0](docs/phase0-check.md)). It has

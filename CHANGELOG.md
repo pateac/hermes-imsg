@@ -20,6 +20,11 @@ All notable changes to this project are recorded here. The format follows
   whether a retry could duplicate.
 - `hermes_imsg.status`: `imsg status` as a health object, checked every minute; a child that stops
   answering is restarted.
+- Files both ways over SSH: `scripts/hermes-imsg-gate`, the forced command for the key, runs
+  `imsg rpc`, serves files only from `~/Library/Messages/Attachments` (`fetch`), and stages
+  outgoing files in an outbox (`put`, 100 MB cap); arguments are base64, never shell-parsed.
+  `Transport.fetch` / `Transport.put` on both transports; the adapter sends images (file or URL),
+  documents, audio and video. Without the gate, files fail with an error naming it.
 - `observe_only` (`IMSG_OBSERVE_ONLY`): record each row to `observe.jsonl` (ids, never text),
   start no turns and send nothing, for a run beside another relay.
 - `docs/install-hermes.md`.

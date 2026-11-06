@@ -40,6 +40,7 @@ from gateway.platforms.base import (
     cache_audio_from_bytes_async,
     cache_document_from_bytes_async,
     cache_image_from_bytes_async,
+    cache_image_from_url,
 )
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.platforms.helpers import (
@@ -54,7 +55,7 @@ from . import events, status
 from . import send as outbound
 from .cursor import Cursor
 from .rpc import NotConnected, Notification, RpcClient
-from .transport import LocalTransport, SshTransport, Transport
+from .transport import LocalTransport, SshTransport, Transport, TransportError
 
 log = logging.getLogger(__name__)
 
@@ -299,19 +300,15 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
     async def _fetch_attachments(
         self, attachments: tuple[events.Attachment, ...]
     ) -> tuple[list[str], list[str]]:
+        assert self.transport is not None
         urls: list[str] = []
         types: list[str] = []
-        if attachments and not isinstance(self.transport, LocalTransport):
-            # shortcut: over SSH the forced-command key can only run `imsg rpc`, so files stay
-            # on the Mac; fetching them needs a decision on what else the key may do.
-            log.info("imsg: %d attachment(s) not fetched over SSH", len(attachments))
-            return urls, types
         for a in attachments:
             if a.missing or not a.path or a.total_bytes > self.max_attachment_bytes:
                 log.info("imsg: skipped an attachment (%s, %d bytes)", a.mime_type, a.total_bytes)
                 continue
-            try:
-                data = await asyncio.to_thread(Path(a.path).expanduser().read_bytes)
+            try:  # over SSH through the gate on the Mac, which serves only Messages attachments
+                data = await self.transport.fetch(a.path, self.max_attachment_bytes)
                 mime = a.mime_type.lower()
                 ext = os.path.splitext(a.filename)[1] or ""
                 if mime.startswith("image/"):
@@ -357,6 +354,20 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
             message_id = result.message_id
         return SendResult(success=True, message_id=message_id)
 
+    async def send_image(
+        self,
+        chat_id: str,
+        image_url: str,
+        caption: str | None = None,
+        reply_to: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        try:
+            path = await cache_image_from_url(image_url)
+        except Exception as exc:
+            return SendResult(success=False, error=f"could not download the image: {exc}")
+        return await self._send_file(chat_id, path, caption)
+
     async def send_image_file(
         self,
         chat_id: str,
@@ -366,10 +377,6 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> SendResult:
-        if not isinstance(self.transport, LocalTransport) or self._client is None:
-            return await super().send_image_file(
-                chat_id, image_path, caption, reply_to, metadata, **kwargs
-            )
         return await self._send_file(chat_id, image_path, caption)
 
     async def send_document(
@@ -382,19 +389,45 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         metadata: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> SendResult:
-        if not isinstance(self.transport, LocalTransport) or self._client is None:
-            # shortcut: over SSH the file is not on the Mac; Hermes's notice tells the user.
-            return await super().send_document(
-                chat_id, file_path, caption, file_name, reply_to, metadata, **kwargs
-            )
-        return await self._send_file(chat_id, file_path, caption)
+        return await self._send_file(chat_id, file_path, caption, file_name)
 
-    async def _send_file(self, chat_id: str, path: str, caption: str | None) -> SendResult:
-        assert self._client is not None
+    async def send_voice(
+        self,
+        chat_id: str,
+        audio_path: str,
+        caption: str | None = None,
+        reply_to: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> SendResult:
+        # shortcut: arrives as an audio file; a voice bubble needs the imsg helper (SIP off, v0.2)
+        return await self._send_file(chat_id, audio_path, caption)
+
+    async def send_video(
+        self,
+        chat_id: str,
+        video_path: str,
+        caption: str | None = None,
+        reply_to: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> SendResult:
+        return await self._send_file(chat_id, video_path, caption)
+
+    async def _send_file(
+        self, chat_id: str, path: str, caption: str | None, name: str | None = None
+    ) -> SendResult:
         if self.observe_only:
             return SendResult(success=False, error=OBSERVE_ONLY)
+        if self._client is None or self.transport is None:
+            return SendResult(success=False, error="Not connected", retryable=True)
+        try:  # over SSH the file goes to the gate's outbox on the Mac first
+            remote = await self.transport.put(path, name or os.path.basename(path))
+        except (OSError, TransportError) as exc:
+            self.counters["send_failures"] += 1
+            return SendResult(success=False, error=f"could not place the file on the Mac: {exc}")
         await self.limiter.wait()
-        result = await outbound.send(self._client, chat_id, text=caption, file=path)
+        result = await outbound.send(self._client, chat_id, text=caption, file=remote)
         if not result.ok:
             self.counters["send_failures"] += 1
         return SendResult(

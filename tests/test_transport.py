@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import FAKE_IMSG, eventually, run
+from conftest import FAKE_IMSG, GATE, eventually, run
 from fake_imsg.store import FakeDB
 
 from hermes_imsg.rpc import RpcClient
@@ -169,3 +169,76 @@ def test_ssh_key_path_never_reaches_errors_or_logs(
         run(scenario())
     assert "stderr" in caplog.text  # control: ssh's complaints were logged
     assert missing_key not in caplog.text
+
+
+# --- the gate: the forced command that also moves attachment files ------------------------
+
+
+def _gated(ssh: SimpleNamespace) -> SshTransport:
+    return SshTransport("fakemac", ssh_config=ssh.config, identity_file=ssh.gated_key)
+
+
+def test_gate_runs_imsg_rpc_and_nothing_else(ssh: SimpleNamespace) -> None:
+    assert run(_gated(ssh).health_check())["protocol_version"] == 1
+    secret = ssh.dir / "not-for-you.txt"
+    secret.write_text("CONTENTS-OF-ANOTHER-FILE")
+    proc = subprocess.run(
+        ["ssh", "-T", "-o", "BatchMode=yes", "-F", ssh.config, "-i", ssh.gated_key, "fakemac",
+         f"cat {secret}"],
+        input=b"", capture_output=True, timeout=20,
+    )  # fmt: skip
+    assert b"CONTENTS-OF-ANOTHER-FILE" not in proc.stdout + proc.stderr
+    assert ssh.db.spawns()[-1]["ssh_command"] == f"cat {secret}"  # imsg rpc ran instead
+    assert os.access(GATE, os.X_OK)
+
+
+def test_gate_fetch_serves_only_messages_attachments(ssh: SimpleNamespace) -> None:
+    t = _gated(ssh)
+    folder = ssh.home / "Library" / "Messages" / "Attachments" / "ab" / "12"
+    folder.mkdir(parents=True, exist_ok=True)
+    picture = folder / "IMG 0001; $(touch x).png"  # a space and shell syntax: never parsed
+    picture.write_bytes(b"\x89PNG fake bytes")
+    assert run(t.fetch(str(picture), 1024)) == b"\x89PNG fake bytes"
+
+    outside = ssh.dir / "not-for-you.txt"
+    outside.write_text("secret")
+    link = folder / "escape.txt"
+    if not link.exists():
+        link.symlink_to(outside)
+    traversal = f"{folder}/../../../../../not-for-you.txt"
+    for path in (str(outside), str(link), traversal, "/etc/hostname"):
+        with pytest.raises(TransportError, match="refused"):
+            run(t.fetch(path, 1024))
+    # macOS realpath fails on a missing file; GNU realpath accepts it and the -f check refuses
+    with pytest.raises(TransportError, match=r"no such file|not a file"):
+        run(t.fetch(str(folder / "missing.png"), 1024))
+    with pytest.raises(TransportError, match="over the 4-byte cap"):
+        run(t.fetch(str(picture), 4))
+    assert not (ssh.home / "x").exists()
+
+
+def test_gate_put_lands_only_in_the_outbox(ssh: SimpleNamespace, tmp_path: Path) -> None:
+    t = _gated(ssh)
+    local = tmp_path / "photo.jpg"
+    local.write_bytes(b"jpeg bytes")
+    remote = run(t.put(str(local), "../../evil; rm -rf ~ $(id).jpg"))
+    outbox = ssh.home / "Library" / "Caches" / "hermes-imsg" / "outbox"
+    assert Path(remote).resolve().parent.parent == outbox.resolve()
+    assert Path(remote).read_bytes() == b"jpeg bytes"
+    assert "/" not in Path(remote).name and ";" not in remote and "$" not in remote
+    before = set(outbox.iterdir())
+    big = tmp_path / "big.bin"
+    big.write_bytes(b"x" * 5000)  # the test key's cap is 4096 bytes
+    with pytest.raises(TransportError, match="larger than 4096"):
+        run(t.put(str(big), "big.bin"))
+    assert set(outbox.iterdir()) == before  # the refused file left nothing behind
+
+
+def test_without_the_gate_files_fail_loudly(ssh: SimpleNamespace, tmp_path: Path) -> None:
+    plain = _ssh(ssh)  # the key forced to plain `imsg rpc`
+    with pytest.raises(TransportError, match="is the gate installed"):
+        run(plain.fetch("/Users/x/Library/Messages/Attachments/a.png", 1024))
+    local = tmp_path / "a.txt"
+    local.write_text("x")
+    with pytest.raises(TransportError, match="is the gate installed"):
+        run(plain.put(str(local), "a.txt"))
