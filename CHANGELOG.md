@@ -20,6 +20,8 @@ All notable changes to this project are recorded here. The format follows
   whether a retry could duplicate.
 - `hermes_imsg.status`: `imsg status` as a health object, checked every minute; a child that stops
   answering is restarted.
+- `observe_only` (`IMSG_OBSERVE_ONLY`): record each row to `observe.jsonl` (ids, never text),
+  start no turns and send nothing, for a run beside another relay.
 - `docs/install-hermes.md`.
 - CI: a `hermes` job runs the adapter tests against Hermes at the pinned tag.
 - `docs/phase0-check.md`: the check on a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), with

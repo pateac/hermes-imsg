@@ -8,6 +8,7 @@ check what the adapter hands Hermes, not Hermes's own pipeline.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 from collections.abc import Iterator
@@ -318,3 +319,35 @@ def test_over_ssh_text_flows_and_attachments_stay_on_the_mac(
     assert [e.text for e in seen] == ["over ssh", "(attachment)"]
     assert seen[1].media_urls == []
     assert result.success
+
+
+def test_observe_only_records_every_row_once_and_never_sends(db: FakeDB, tmp_path: Path) -> None:
+    """The parallel run beside another relay: rows are recorded (no text), no turn starts,
+    nothing is sent, and the record survives a killed child without gaps or doubles."""
+    chat = db.add_chat(COLE)
+    adapter, seen = make(db, tmp_path, observe_only=True)
+
+    async def scenario() -> Any:
+        await connected(adapter)
+        assert adapter._client is not None
+        adapter._client.backoff_initial = 0.2
+        db.add_message(chat["id"], "secret one")
+        db.add_message(chat["id"], "", is_reaction=True, reaction_type="like", reacted_to_guid="X")
+        await eventually(lambda: adapter.counters["secondary"] == 1)
+        os.kill(db.spawns()[-1]["pid"], signal.SIGKILL)
+        db.add_message(chat["id"], "secret two")
+        await eventually(lambda: adapter.counters["received"] == 2)
+        result = await adapter.send(chat["guid"], "must not go out")
+        await asyncio.sleep(0.3)
+        await adapter.disconnect()
+        return result
+
+    result = run(scenario())
+    assert seen == [] and not result.success and "observe-only" in (result.error or "")
+    assert db.calls("send") == []  # control for the refusal: imsg never saw a send
+    log = (tmp_path / "state" / "observe.jsonl").read_text()
+    records = [json.loads(line) for line in log.splitlines()]
+    assert [r["kind"] for r in records] == ["inbound", "reaction", "inbound"]
+    assert [r["guid"] for r in records] == [r["guid"] for r in db.messages_after(0)]
+    assert records[0]["chat_guid"] == chat["guid"] and records[0]["sender"] == COLE
+    assert "secret" not in log  # no message text in the record

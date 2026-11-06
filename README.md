@@ -10,7 +10,8 @@ outbound SSH connection. No listener on the Mac, no password in a URL, no webhoo
 > CI tests it against Hermes v2026.9.24's real plugin loader and adapter base class, and against a
 > fake `imsg`. On a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), `imsg` itself and this
 > plugin's RPC client were checked locally and over SSH ([phase 0](docs/phase0-check.md)). It has
-> **not yet run in a live Hermes gateway against that Mac**; a week beside BlueBubbles is next.
+> **not yet run in a live Hermes gateway against that Mac**; a week beside BlueBubbles, in
+> observe-only mode, is next.
 > See [Roadmap](#roadmap).
 
 Built with [Claude Code](https://claude.com/claude-code). Maintained and tested by

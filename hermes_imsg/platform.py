@@ -15,6 +15,8 @@ config.yaml `gateway.platforms.imsg.extra` keys, each overridable by env:
   sends_per_minute (IMSG_SENDS_PER_MINUTE)  rate limit (default 30)
   max_attachment_mb (IMSG_MAX_ATTACHMENT_MB) inbound size cap (default 25; local transport)
   require_mention, mention_patterns    group gating, as the BlueBubbles adapter
+  observe_only (IMSG_OBSERVE_ONLY)     record each row to <state_dir>/observe.jsonl, start no
+                                       turns and send nothing: for a run beside another relay
 Who may talk to the agent is Hermes's job: IMSG_ALLOWED_USERS / IMSG_ALLOW_ALL_USERS.
 """
 
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -60,6 +63,7 @@ TRUTHY = {"1", "true", "yes", "on"}
 # Hermes's wake words, as its BlueBubbles adapter uses for `require_mention`.
 DEFAULT_MENTION_PATTERNS = [r"(?<![\w@])@?hermes\s+agent\b[,:\-]?", r"(?<![\w@])@?hermes\b[,:\-]?"]
 SecondaryListener = Callable[[events.Secondary], Awaitable[None]]
+OBSERVE_ONLY = "imsg is observe-only: nothing is sent"
 
 
 def _setting(extra: dict[str, Any], key: str, env: str, default: Any = "") -> Any:
@@ -101,6 +105,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         if require is None:
             require = get_scoped_secret("IMSG_REQUIRE_MENTION")
         self.require_mention = str(require).strip().lower() in TRUTHY
+        observe = _setting(extra, "observe_only", "IMSG_OBSERVE_ONLY")
+        self.observe_only = str(observe).strip().lower() in TRUTHY
         raw_patterns = (
             extra["mention_patterns"]
             if "mention_patterns" in extra
@@ -216,17 +222,39 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
             self.counters["received"] += 1
             if self._dedup.is_duplicate(event.guid):
                 self.counters["duplicates"] += 1
+            elif self.observe_only:
+                self._observe("inbound", event.rowid, event.guid, event.chat_guid, event.sender)
             else:
                 await self._dispatch(event)
         elif isinstance(event, events.Secondary):
             self.counters["secondary"] += 1
-            for listener in list(self.secondary_listeners):
-                try:
-                    await listener(event)
-                except Exception:
-                    log.exception("imsg: a secondary-event listener failed")
+            if self.observe_only:
+                self._observe(event.kind, event.rowid, event.guid, event.chat_guid, event.sender)
+            else:
+                await self._notify_secondary(event)
         if new_rowid is not None:
             self._cursor.advance(new_rowid)  # after Hermes accepted it: at-least-once
+
+    async def _notify_secondary(self, event: events.Secondary) -> None:
+        for listener in list(self.secondary_listeners):
+            try:
+                await listener(event)
+            except Exception:
+                log.exception("imsg: a secondary-event listener failed")
+
+    def _observe(self, kind: str, rowid: int, guid: str, chat_guid: str, sender: str) -> None:
+        """observe_only: one JSON line per row the adapter would have handed on; no message text."""
+        assert self._cursor is not None
+        record = {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "kind": kind,
+            "rowid": rowid,
+            "guid": guid,
+            "chat_guid": chat_guid,
+            "sender": sender,
+        }
+        with open(self._cursor.path.with_name("observe.jsonl"), "a") as f:
+            f.write(json.dumps(record) + "\n")
 
     async def _dispatch(self, event: events.Inbound) -> None:
         text = event.text
@@ -312,6 +340,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
         # reply_to is ignored: threaded replies need the imsg helper (SIP off, phase 5).
+        if self.observe_only:
+            return SendResult(success=False, error=OBSERVE_ONLY)
         if self._client is None:
             return SendResult(success=False, error="Not connected", retryable=True)
         message_id = None
@@ -361,6 +391,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
 
     async def _send_file(self, chat_id: str, path: str, caption: str | None) -> SendResult:
         assert self._client is not None
+        if self.observe_only:
+            return SendResult(success=False, error=OBSERVE_ONLY)
         await self.limiter.wait()
         result = await outbound.send(self._client, chat_id, text=caption, file=path)
         if not result.ok:

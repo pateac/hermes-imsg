@@ -63,6 +63,19 @@ platforms:
 Who may talk to the agent is Hermes's own check: `IMSG_ALLOWED_USERS` (handles) or
 `IMSG_ALLOW_ALL_USERS`.
 
+## A run beside another relay (observe only)
+
+To check the plugin against a relay that is already answering (BlueBubbles, say) without the agent
+answering twice, set `IMSG_OBSERVE_ONLY=1` (or `observe_only: true`). The plugin subscribes and
+resumes exactly as it would live, but starts no turns and sends nothing: a send returns an error.
+Each row it would have handed to Hermes is appended to `<state_dir>/observe.jsonl`: the time, the
+kind (`inbound`, `reaction`, `edited`, `unsent`, `poll`), the row id, the message GUID, the chat
+GUID and the sender. Never the message text.
+
+Compare the `inbound` GUIDs with the message ids the other relay gave Hermes; Hermes's BlueBubbles
+adapter uses the same message GUID. Nothing should be missing, and nothing should appear twice.
+To go live, unset it. The cursor carries over, so the switch does not replay the observed days.
+
 ## 3. What the agent sees
 
 - **One turn per message from someone else.** The agent's own sends come back from Messages and
