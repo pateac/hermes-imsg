@@ -67,7 +67,7 @@ def sshd(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SimpleNamespace]:
     client_pub = _keygen(d / "client_key")
     db = FakeDB(d / "chat.db")
     # The line SECURITY.md recommends, pointed at the fake instead of /opt/homebrew/bin/imsg.
-    forced = f'restrict,command="{FAKE_IMSG} rpc --db {db.path}" {client_pub}\n'
+    forced = f'from="127.0.0.1",restrict,command="{FAKE_IMSG} rpc --db {db.path}" {client_pub}\n'
     (d / "authorized_keys").write_text(forced)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))

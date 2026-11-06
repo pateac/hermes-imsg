@@ -2,7 +2,8 @@
 
 Run on Nov 5, 2026 on an M4 Mac with macOS 27.2, SIP on, as a standard (non-admin) user signed
 into Messages. BlueBubbles was serving the same account throughout. Nothing changed SIP, and no
-helper was installed. The SSH and forced-command key setup is still to do.
+helper was installed. The SSH path from the Hermes host was set up and checked the same evening
+([below](#over-ssh-from-the-hermes-host)).
 
 | Step | Result | Notes |
 |---|---|---|
@@ -14,6 +15,26 @@ helper was installed. The SSH and forced-command key setup is still to do.
 | 5. Poll | Pass | `imessage.poll.created` and `imessage.poll.voted` rows captured |
 | 6. One send | Pass | Delivered; no agent reply within 45 seconds |
 | 7. Live tests and fake comparison | Pass | `tests/live` 2 of 2 on Python 3.13 |
+
+## Over SSH from the Hermes host
+
+From a Linux host on the same LAN, through `ssh -T -o BatchMode=yes`, to the same Mac user:
+
+| Step | Result | Notes |
+|---|---|---|
+| Key | Pass | ed25519, no passphrase; the private half stays on the Hermes host |
+| Mac `authorized_keys` | Pass | `from="<host address>",restrict,command="/Users/<user>/.local/bin/imsg rpc" ssh-ed25519 …` |
+| Host key | Pass | The Mac's fingerprint checked at the Mac before the host accepted it; with `BatchMode` an unknown host fails closed |
+| `status` over SSH | Pass | Same as local: 0.21.0, protocol 1, database ready, bridge not ready, the same 15 methods |
+| Other commands refused | Pass | `ssh … 'ls /'` printed nothing and exited 0: `imsg rpc` ran instead and ended at end of input |
+
+6. **Remote Login's access list must include the Mac user.** It was the one failure: the key was
+   accepted (`Server accepts key`), then the connection dropped with only "Connection closed by
+   … port 22". macOS lists only Administrators by default, and the user was a standard user.
+   Adding the user fixed it.
+7. **"Allow full disk access for remote users"** (Remote Login, ⓘ) was on for this run, as
+   `imsg`'s permissions doc asks. Not tested with it off.
+8. **`contacts.available` was false over SSH.** The plugin works from handles, not contact names.
 
 ## `imsg` build
 
@@ -86,4 +107,5 @@ Deferred to phase 5, because `poll.send` needs the bridge and so SIP off:
 - The `is_from_me` `imessage.poll.created` row for a poll created from the agent's account
 - Reading another person's vote on such a poll
 
-Also not tested: sends over SSH (the Automation prompt may land on `sshd-keygen-wrapper`).
+Also not tested: sends over SSH. The Automation prompt for those may land on `sshd-keygen-wrapper`
+and needs a person at the Mac once, before the first send.

@@ -14,15 +14,21 @@ Supported versions: the latest release only (none yet; phase 1 is pre-release).
 Mac, which means reading every message in Messages and sending as that account. Treat the key
 like the account's password.
 
-**Pin the key to one command.** In `~/.ssh/authorized_keys` on the Mac:
+**Pin the key to one command and one host.** In `~/.ssh/authorized_keys` on the Mac, with the
+Hermes host's fixed address and the path that `command -v imsg` prints:
 
 ```
-restrict,command="/opt/homebrew/bin/imsg rpc" ssh-ed25519 AAAA... hermes-imsg
+from="192.0.2.10",restrict,command="/opt/homebrew/bin/imsg rpc" ssh-ed25519 AAAA... hermes-imsg
 ```
 
-`restrict` turns off port, agent and X11 forwarding and PTY allocation; `command=` makes sshd run
-`imsg rpc` whatever the client asks for. The test suite checks this exact line against a real
-`sshd`: a request for any other command runs `imsg rpc` instead.
+`from=` refuses the key from any other address; `restrict` turns off port, agent and X11
+forwarding and PTY allocation; `command=` makes sshd run `imsg rpc` whatever the client asks for.
+The test suite checks this form against a real `sshd`, and it was checked on a real Mac on Nov 5
+([phase 0](docs/phase0-check.md)): a request for any other command runs `imsg rpc` instead.
+
+Remote Login must allow the Mac user (System Settings → General → Sharing → Remote Login →
+Allow access for). macOS lists only Administrators by default, and a standard user missing from
+the list is refused after its key is accepted, with nothing but "Connection closed" on the client.
 
 The pin limits *what runs*, not *what sshd can read*. `imsg` over SSH needs Full Disk Access for
 Remote Login, and that grant covers every SSH login to the Mac. So, where you can:

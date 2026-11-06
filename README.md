@@ -10,7 +10,8 @@ outbound SSH connection. No listener on the Mac, no password in a URL, no webhoo
 > It is **not yet a loadable Hermes plugin** (the platform, events, cursor and send modules land
 > in v0.1). On a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), reads, watch, tapbacks, poll votes
 > and a send all worked, and the RPC client passed its live tests: see
-> [the phase 0 check](docs/phase0-check.md). The SSH path to a real Mac is not tested yet.
+> [the phase 0 check](docs/phase0-check.md). Over SSH from a Linux host, with the key pinned to
+> `imsg rpc`, `status` works the same; sends over SSH are not tested yet.
 > See [Roadmap](#roadmap).
 
 Built with [Claude Code](https://claude.com/claude-code). Maintained and tested by
@@ -96,7 +97,7 @@ start a throwaway `sshd` on 127.0.0.1 whose only key is forced to run the fake. 
 
 | Phase | What | State |
 |---|---|---|
-| 0 | One hour at a Mac: install `imsg`, status, watch, a poll's votes, one send; the SSH key | [done Nov 5](docs/phase0-check.md), except the SSH key |
+| 0 | One hour at a Mac: install `imsg`, status, watch, a poll's votes, one send; the SSH key | [done Nov 5](docs/phase0-check.md) |
 | 1 | `rpc.py`, `transport.py`, the fake `imsg`, CI | **this release** |
 | 2 | v0.1 "text and reads": platform, events, cursor, send, status; a week beside BlueBubbles | next |
 | 3 | Switch sends over, one profile then all | |

@@ -87,9 +87,9 @@ class SshTransport(Transport):
 
     `host` is anything ssh accepts as a destination (an alias from your ssh
     config, `user@host`, `ssh://user@host:port`). On the Mac, pin the key to
-    one command (SECURITY.md):
+    this host and one command (SECURITY.md):
 
-        restrict,command="/opt/homebrew/bin/imsg rpc" ssh-ed25519 AAAA... hermes-imsg
+        from="192.0.2.10",restrict,command="/opt/homebrew/bin/imsg rpc" ssh-ed25519 AAAA...
 
     Without that, note that a non-interactive SSH shell on macOS often lacks
     /opt/homebrew/bin on PATH; pass the full `imsg_path`.

@@ -21,3 +21,5 @@ All notable changes to this project are recorded here. The format follows
 ### Changed
 - The fake `imsg` follows imsg 0.21.0 as seen on a real Mac: `database.features` in `status`,
   and `destination_caller_id` and `reactions` on every row.
+- The recommended `authorized_keys` line adds `from=` (only the Hermes host's address), and the
+  SSH tests use that form. Checked on a real Mac over SSH; recorded in `docs/phase0-check.md`.
