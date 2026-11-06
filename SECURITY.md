@@ -55,7 +55,9 @@ nowhere but the Hermes event. The SSH key path never appears in logs or errors: 
 redacted before it is logged. Both are tested.
 
 **What the plugin stores.** No credentials of any kind. The SSH private key lives with Hermes,
-where you put it. From v0.1, a cursor (a message row id) per account.
+where you put it. One small file, `<hermes home>/imsg/cursor.json`: the last message row id
+handed to Hermes and the Messages database path. With the local transport, inbound attachments are
+copied into Hermes's media cache, as every Hermes platform does; the Mac's copies are never moved.
 
-**Not a policy engine.** A sender filter in config is a courtesy, not a security boundary.
+**Not a policy engine.** Who may talk to the agent is Hermes's own `IMSG_ALLOWED_USERS` check.
 Allowlists, approvals and who may talk to the agent belong in the Hermes host.

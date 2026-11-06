@@ -161,6 +161,18 @@ class RpcClient:
         if self._supervisor is None:
             self._supervisor = asyncio.create_task(self._supervise())
 
+    @property
+    def ready(self) -> bool:
+        """Connected, initialized, and `on_connect` done."""
+        return self._ready.is_set()
+
+    def restart(self) -> None:
+        """Kill the current child; the supervisor reconnects and runs `on_connect` again."""
+        proc = self._proc
+        if proc is not None and proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+
     async def wait_ready(self, timeout: float) -> None:
         try:
             await asyncio.wait_for(self._ready.wait(), timeout)

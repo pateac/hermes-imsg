@@ -28,6 +28,9 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=9.2", "ruff>=0.17", "mypy>=2.4"]
 
+[project.entry-points."hermes_agent.plugins"]
+imsg = "hermes_imsg"
+
 [project.urls]
 Homepage = "https://github.com/pateac/hermes-imsg"
 Issues = "https://github.com/pateac/hermes-imsg/issues"
@@ -51,6 +54,11 @@ select = ["E", "F", "W", "I", "B", "UP", "RUF"]
 strict = true
 python_version = "3.11"
 files = ["hermes_imsg"]
+
+[[tool.mypy.overrides]]
+# Hermes is not a pip dependency (it ships no wheel); platform.py is checked against it in CI.
+module = ["gateway.*", "hermes_constants"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

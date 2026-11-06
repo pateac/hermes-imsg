@@ -7,6 +7,21 @@ All notable changes to this project are recorded here. The format follows
 ## [Unreleased]
 
 ### Added
+- The Hermes platform plugin `imsg` (`hermes_imsg.platform`), for text and reads, tested against
+  Hermes v2026.9.24: one turn per message from someone else; the agent's own sends, tapbacks,
+  edits, unsends and poll rows start none (tapbacks, edits and polls go to
+  `secondary_listeners`); chat and user ids as Hermes's BlueBubbles adapter; group mention
+  gating; plain-text sends split at 4,000 characters and rate limited; local attachments copied
+  into Hermes's media cache. Loads from pip (`hermes_agent.plugins` entry point) or as a plugin
+  folder (`plugin.yaml`); enable with `hermes plugins enable imsg`.
+- `hermes_imsg.events`: every imsg row is one inbound message, one secondary event, or nothing.
+- `hermes_imsg.cursor`: the resume point; replays after a reconnect or restart are dropped.
+- `hermes_imsg.send`: GUID or handle targets, a token-bucket rate limit, and failures that say
+  whether a retry could duplicate.
+- `hermes_imsg.status`: `imsg status` as a health object, checked every minute; a child that stops
+  answering is restarted.
+- `docs/install-hermes.md`.
+- CI: a `hermes` job runs the adapter tests against Hermes at the pinned tag.
 - `docs/phase0-check.md`: the check on a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), with
   findings for the plugin and the real poll row shapes.
 - `hermes_imsg.rpc`: JSON-RPC 2.0 client for one long-lived `imsg rpc` child. Calls multiplexed
@@ -19,6 +34,7 @@ All notable changes to this project are recorded here. The format follows
 - CI: ruff, mypy (strict) and pytest on Python 3.11 to 3.13.
 
 ### Changed
+- `RpcClient` gains `ready` and `restart()`.
 - The fake `imsg` follows imsg 0.21.0 as seen on a real Mac: `database.features` in `status`,
   and `destination_caller_id` and `reactions` on every row.
 - The recommended `authorized_keys` line adds `from=` (only the Hermes host's address), and the

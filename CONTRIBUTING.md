@@ -24,6 +24,17 @@ Everything runs against `tests/fake_imsg/`, a stand-in for `imsg rpc`:
 The SSH tests start a throwaway `sshd` on 127.0.0.1. They skip if `sshd` is not installed
 (`apt install openssh-server`); CI sets `HERMES_IMSG_REQUIRE_SSH=1` so there they fail instead.
 
+The adapter tests (`tests/test_platform.py`) need Hermes Agent itself, at the tag CI pins. Hermes
+ships no wheel, so install it editable from a checkout:
+
+```bash
+git clone --depth 1 --branch v2026.9.24 https://github.com/NousResearch/hermes-agent
+pip install -e ./hermes-agent
+```
+
+Without Hermes they skip; CI's `hermes` job sets `HERMES_IMSG_REQUIRE_HERMES=1` so there they fail
+instead. Keep `platform.py` the only module that imports Hermes.
+
 On a Mac, `tests/live/` checks the real `imsg` (opt-in, read-only; see the file's docstring).
 
 ## Before you open a PR

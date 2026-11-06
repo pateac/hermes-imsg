@@ -5,13 +5,12 @@ iMessage for [Hermes Agent](https://github.com/NousResearch/hermes-agent) throug
 stdio. The plugin runs wherever Hermes runs (Linux included) and reaches the Mac over one
 outbound SSH connection. No listener on the Mac, no password in a URL, no webhook to register.
 
-> **Status: pre-release, phase 1 of 5.** What exists today is the plumbing under the platform:
-> the JSON-RPC client, the local and SSH transports, and a fake `imsg` so CI needs no Mac.
-> It is **not yet a loadable Hermes plugin** (the platform, events, cursor and send modules land
-> in v0.1). On a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), reads, watch, tapbacks, poll votes
-> and a send all worked, and the RPC client passed its live tests: see
-> [the phase 0 check](docs/phase0-check.md). Over SSH from a Linux host, with the key pinned to
-> `imsg rpc`, `status` works the same; sends over SSH are not tested yet.
+> **Status: pre-release; phase 2 of 5 built, not yet run live.** It is a loadable Hermes plugin
+> for text and reads: receive, send, resume after restarts with nothing missed or doubled, health.
+> CI tests it against Hermes v2026.9.24's real plugin loader and adapter base class, and against a
+> fake `imsg`. On a real Mac (macOS 27.2, SIP on, `imsg` 0.21.0), `imsg` itself and this
+> plugin's RPC client were checked locally and over SSH ([phase 0](docs/phase0-check.md)). It has
+> **not yet run in a live Hermes gateway against that Mac**; a week beside BlueBubbles is next.
 > See [Roadmap](#roadmap).
 
 Built with [Claude Code](https://claude.com/claude-code). Maintained and tested by
@@ -44,41 +43,22 @@ One long-lived `imsg rpc` child per account. Calls multiplex over it by id; noti
 "may have run", the client reconnects with exponential backoff and calls your `on_connect`
 again, which is where a subscriber re-subscribes and back-fills from its cursor.
 
-## Try the pieces that exist
+## Use it with Hermes
 
 ```bash
-pip install git+https://github.com/pateac/hermes-imsg
+pip install git+https://github.com/pateac/hermes-imsg   # into Hermes's Python environment
+hermes plugins enable imsg
 ```
 
-```python
-import asyncio
-from hermes_imsg.rpc import RpcClient
-from hermes_imsg.transport import SshTransport
-
-mac = SshTransport(
-    "mac.local", identity_file="~/.ssh/hermes_imsg", imsg_path="/opt/homebrew/bin/imsg"
-)
-
-
-async def main():
-    print(await mac.health_check())  # imsg's status: database, bridge, methods
-
-    async def subscribe(client):
-        await client.call("watch.subscribe", {})
-
-    async with RpcClient(mac, on_connect=subscribe) as client:
-        await client.wait_ready(20)
-        while True:
-            note = await client.notifications.get()
-            if note.method == "message":
-                print(note.params["message"]["chat_guid"])
-
-
-asyncio.run(main())
+```bash
+# Hermes's .env: the Mac over SSH (or IMSG_TRANSPORT=local on the Mac itself)
+IMSG_SSH_HOST=me@mac.local
+IMSG_SSH_KEY=~/.ssh/hermes_imsg
+IMSG_PATH=/Users/me/.local/bin/imsg
+IMSG_ALLOWED_USERS=+15551230001
 ```
 
-Every error says whether re-sending is safe (`err.retry_safe`). The client never retries a call
-by itself: a send that may have run must not be sent twice.
+Settings, what the agent sees, and what is not done yet: [docs/install-hermes.md](docs/install-hermes.md).
 
 ## Develop without a Mac
 
@@ -88,18 +68,20 @@ pytest                      # against tests/fake_imsg; SSH tests need sshd insta
 ruff check . && ruff format --check . && mypy
 ```
 
-`tests/fake_imsg/` is a stand-in that speaks `imsg rpc`'s protocol (imsg 0.20.0) with the same
+`tests/fake_imsg/` is a stand-in that speaks `imsg rpc`'s protocol (imsg 0.21.0) with the same
 strictness, backed by a SQLite file so it survives being killed and respawned. The SSH tests
 start a throwaway `sshd` on 127.0.0.1 whose only key is forced to run the fake. On a Mac,
-`tests/live/` checks the real thing (opt-in, read-only). See [CONTRIBUTING.md](CONTRIBUTING.md).
+`tests/live/` checks the real thing (opt-in, read-only). The adapter tests need Hermes itself;
+they skip without it, and CI runs them against the pinned tag. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Roadmap
 
 | Phase | What | State |
 |---|---|---|
 | 0 | One hour at a Mac: install `imsg`, status, watch, a poll's votes, one send; the SSH key | [done Nov 5](docs/phase0-check.md) |
-| 1 | `rpc.py`, `transport.py`, the fake `imsg`, CI | **this release** |
-| 2 | v0.1 "text and reads": platform, events, cursor, send, status; a week beside BlueBubbles | next |
+| 1 | `rpc.py`, `transport.py`, the fake `imsg`, CI | done Nov 1 |
+| 2 | v0.1 "text and reads": platform, events, cursor, send, status; a week beside BlueBubbles | **built Nov 6**; the week's run is next |
 | 3 | Switch sends over, one profile then all | |
 | 4 | Publish v0.1: docs with screenshots, PyPI, the Hermes plugin catalog | |
 | 5 | v0.2 "the helper": reactions, threaded replies, native polls (needs SIP off on the Mac) | |

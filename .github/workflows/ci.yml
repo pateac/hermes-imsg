@@ -30,3 +30,26 @@ jobs:
       - run: pytest
         env:
           HERMES_IMSG_REQUIRE_SSH: "1"  # fail, not skip, if the SSH tests cannot run
+
+  hermes:
+    # The adapter against Hermes itself. Hermes ships no wheel, so: an editable install of the tag.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HERMES_REF: v2026.9.24
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: NousResearch/hermes-agent
+          ref: ${{ env.HERMES_REF }}
+          path: hermes-agent
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: sudo apt-get update -q && sudo apt-get install -y -q openssh-server openssh-client
+      - run: pip install -e ./hermes-agent -e ".[dev]"
+      - run: pytest
+        env:
+          HERMES_IMSG_REQUIRE_HERMES: "1"  # fail, not skip, if Hermes did not import
+          HERMES_IMSG_REQUIRE_SSH: "1"

@@ -1,6 +1,14 @@
 """iMessage for Hermes Agent through `imsg`.
 
-Phase 1 ships the pieces under the platform: `rpc` (the JSON-RPC client) and
-`transport` (local and SSH). The Hermes `register()` entry point arrives with
-`platform.py` in v0.1.
+`register(ctx)` is the Hermes plugin entry point, both for a pip install (the
+`hermes_agent.plugins` entry point) and for this directory dropped into a Hermes
+plugins folder (with `plugin.yaml`). Everything else here imports without Hermes.
 """
+
+from typing import Any
+
+
+def register(ctx: Any) -> None:
+    from .platform import register as _register  # imports Hermes; only Hermes calls this
+
+    _register(ctx)

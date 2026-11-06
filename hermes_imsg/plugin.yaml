@@ -1,0 +1,33 @@
+name: imsg
+label: iMessage (imsg)
+kind: platform
+description: >
+  iMessage through imsg on a Mac signed into Messages: JSON-RPC to a local
+  `imsg rpc`, or to one on the Mac over a single SSH connection. No listener on
+  the Mac. Enable with `hermes plugins enable imsg`.
+author: pateac
+optional_env:
+  - name: IMSG_SSH_HOST
+    description: "SSH destination of the Mac (an ssh config alias, or user@host)"
+    prompt: "Mac SSH host"
+    password: false
+  - name: IMSG_SSH_KEY
+    description: "Private key for that host; pin it to `imsg rpc` on the Mac (SECURITY.md)"
+    prompt: "SSH key path"
+    password: false
+  - name: IMSG_TRANSPORT
+    description: "Set to `local` when Hermes runs on the Mac itself"
+    prompt: "Transport (local, or empty for ssh)"
+    password: false
+  - name: IMSG_PATH
+    description: "Path to imsg on the Mac (default: imsg)"
+    prompt: "imsg path"
+    password: false
+  - name: IMSG_ALLOWED_USERS
+    description: "Comma-separated handles (phone numbers, emails) allowed to talk to the agent"
+    prompt: "Allowed handles"
+    password: false
+  - name: IMSG_HOME_CHANNEL
+    description: "Chat GUID or handle for cron and notification delivery"
+    prompt: "Home chat (or empty)"
+    password: false
