@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -51,7 +50,7 @@ from gateway.platforms.helpers import (
 )
 from hermes_constants import get_hermes_home
 
-from . import events, status
+from . import events, observe, status
 from . import send as outbound
 from .cursor import Cursor
 from .rpc import NotConnected, Notification, RpcClient
@@ -181,12 +180,7 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
     async def _subscribe(self, client: RpcClient) -> None:
         """on_connect: resume from the cursor. imsg replays rows after it, then streams live."""
         assert self._cursor is not None
-        database = (client.status or {}).get("database") or {}
-        self._cursor.bind(str(database.get("path") or ""))
-        params: dict[str, Any] = {"include_reactions": True, "attachments": True}
-        if self._cursor.rowid:
-            params["since_rowid"] = self._cursor.rowid
-        await client.call("watch.subscribe", params)
+        await observe.subscribe(client, self._cursor)
 
     # --- inbound -----------------------------------------------------------------------
 
@@ -211,10 +205,7 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         row = note.params.get("message")
         if note.method != "message" or not isinstance(row, dict):
             return
-        rowid = row.get("id")
-        new_rowid: int | None = None  # edits and unsends reuse an old row id; they never advance
-        if "type" not in row and isinstance(rowid, int) and not isinstance(rowid, bool):
-            new_rowid = rowid
+        new_rowid = events.new_rowid(row)
         if new_rowid is not None and new_rowid <= self._cursor.rowid:
             self.counters["duplicates"] += 1  # a replay after reconnect or restart
             return
@@ -224,13 +215,13 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
             if self._dedup.is_duplicate(event.guid):
                 self.counters["duplicates"] += 1
             elif self.observe_only:
-                self._observe("inbound", event.rowid, event.guid, event.chat_guid, event.sender)
+                observe.write_record(self._cursor.path.with_name(observe.RECORD), event)
             else:
                 await self._dispatch(event)
         elif isinstance(event, events.Secondary):
             self.counters["secondary"] += 1
             if self.observe_only:
-                self._observe(event.kind, event.rowid, event.guid, event.chat_guid, event.sender)
+                observe.write_record(self._cursor.path.with_name(observe.RECORD), event)
             else:
                 await self._notify_secondary(event)
         if new_rowid is not None:
@@ -242,20 +233,6 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
                 await listener(event)
             except Exception:
                 log.exception("imsg: a secondary-event listener failed")
-
-    def _observe(self, kind: str, rowid: int, guid: str, chat_guid: str, sender: str) -> None:
-        """observe_only: one JSON line per row the adapter would have handed on; no message text."""
-        assert self._cursor is not None
-        record = {
-            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            "kind": kind,
-            "rowid": rowid,
-            "guid": guid,
-            "chat_guid": chat_guid,
-            "sender": sender,
-        }
-        with open(self._cursor.path.with_name("observe.jsonl"), "a") as f:
-            f.write(json.dumps(record) + "\n")
 
     async def _dispatch(self, event: events.Inbound) -> None:
         text = event.text

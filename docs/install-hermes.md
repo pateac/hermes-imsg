@@ -73,18 +73,57 @@ platforms:
 Who may talk to the agent is Hermes's own check: `IMSG_ALLOWED_USERS` (handles) or
 `IMSG_ALLOW_ALL_USERS`.
 
-## A run beside another relay (observe only)
+## A week beside another relay (observe only)
 
-To check the plugin against a relay that is already answering (BlueBubbles, say) without the agent
-answering twice, set `IMSG_OBSERVE_ONLY=1` (or `observe_only: true`). The plugin subscribes and
-resumes exactly as it would live, but starts no turns and sends nothing: a send returns an error.
-Each row it would have handed to Hermes is appended to `<state_dir>/observe.jsonl`: the time, the
-kind (`inbound`, `reaction`, `edited`, `unsent`, `poll`), the row id, the message GUID, the chat
-GUID and the sender. Never the message text.
+To check what the plugin sees against a relay that is already answering (BlueBubbles, say) without
+anyone getting two answers, observe first. Two ways, with the same reading code and the same record:
 
-Compare the `inbound` GUIDs with the message ids the other relay gave Hermes; Hermes's BlueBubbles
-adapter uses the same message GUID. Nothing should be missing, and nothing should appear twice.
-To go live, unset it. The cursor carries over, so the switch does not replay the observed days.
+- **Standalone (when that Hermes is in service):** `hermes-imsg observe` on the Hermes host, in its
+  own process. Hermes itself is not touched or restarted.
+
+  ```bash
+  python3 -m venv ~/hermes-imsg-venv
+  ~/hermes-imsg-venv/bin/pip install git+https://github.com/pateac/hermes-imsg
+  ~/hermes-imsg-venv/bin/hermes-imsg observe --host me@mac.local \
+      --identity-file ~/.ssh/hermes_imsg --state-dir /an/encrypted/disk/imsg-observe
+  ```
+
+  It has no dependencies, so a checkout works as well, with nothing installed: `git clone
+  https://github.com/pateac/hermes-imsg && cd hermes-imsg && python3 -m hermes_imsg observe ...`.
+  Keep it running (in `tmux`, say). It reconnects by itself, and after a stop or a reboot it
+  resumes from its cursor, so nothing in between is lost. The very first start begins at the
+  newest message.
+- **Inside Hermes:** `IMSG_OBSERVE_ONLY=1` (or `observe_only: true`). The plugin subscribes and
+  resumes as it would live, but starts no turns and sends nothing: a send returns an error. To go
+  live, unset it; the cursor carries over, so the switch does not replay the observed days.
+
+Either way, each row is appended to `<state_dir>/observe.jsonl`: the time, the kind (`inbound`,
+`reaction`, `edited`, `unsent`, `poll`), the row id, the message GUID, the chat GUID and the
+sender. Never the message text. The senders are phone numbers and emails, so keep the folder on an
+encrypted disk and delete it after the audit.
+
+### The audit
+
+Hermes keeps each inbound message's platform id in its `state.db` (one per profile), and Hermes's
+BlueBubbles adapter uses the same message GUID as imsg. So:
+
+```bash
+hermes-imsg audit --record /an/encrypted/disk/imsg-observe/observe.jsonl \
+    --hermes-db <hermes home>/state.db --hermes-db <hermes home>/profiles/<name>/state.db
+```
+
+It opens the databases read-only and reports, for the window (the record's first to last line, or
+`--since` / `--until`):
+
+- **missed**: BlueBubbles handed Hermes a message the record lacks. Must be 0.
+- **doubled**: an inbound row recorded twice. Must be 0.
+- **extra**: recorded but not handed to Hermes. Each needs a reason: a sender Hermes does not
+  route, a group it ignores, a time BlueBubbles or Hermes was down.
+- messages with **no id**, counted but not checkable.
+
+It exits 0 when missed and doubled are both 0. Hermes's and the record's clocks differ by a few
+seconds, so extras are checked against a window five minutes wider; audit the whole days in the
+middle of the week to keep the edges out of it.
 
 ## 3. What the agent sees
 

@@ -80,6 +80,14 @@ def _attachments(row: dict[str, Any]) -> tuple[Attachment, ...]:
     return tuple(out)
 
 
+def new_rowid(row: dict[str, Any]) -> int | None:
+    """The row id that moves the resume cursor, or None: edits and unsends reuse an old id."""
+    rowid = row.get("id")
+    if "type" in row or not isinstance(rowid, int) or isinstance(rowid, bool):
+        return None
+    return rowid
+
+
 def classify(row: dict[str, Any]) -> Inbound | Secondary | None:
     rowid, guid, chat_guid = row.get("id"), _str(row, "guid"), _str(row, "chat_guid")
     if type(rowid) is not int or not guid or not chat_guid:

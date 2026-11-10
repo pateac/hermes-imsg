@@ -28,6 +28,9 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=9.2", "ruff>=0.17", "mypy>=2.4"]
 
+[project.scripts]
+hermes-imsg = "hermes_imsg.__main__:main"
+
 [project.entry-points."hermes_agent.plugins"]
 imsg = "hermes_imsg"
 

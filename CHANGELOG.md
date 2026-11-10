@@ -25,6 +25,10 @@ All notable changes to this project are recorded here. The format follows
   outgoing files in an outbox (`put`, 100 MB cap); arguments are base64, never shell-parsed.
   `Transport.fetch` / `Transport.put` on both transports; the adapter sends images (file or URL),
   documents, audio and video. Without the gate, files fail with an error naming it.
+- `hermes-imsg observe` (also `python -m hermes_imsg observe`): the plugin's own reading code in a
+  standalone process, writing the same record, for a week beside another relay without touching
+  the Hermes that is serving. `hermes-imsg audit`: compares the record with the message ids that
+  relay handed Hermes (from Hermes's `state.db`, read-only): missed, doubled, extra.
 - `observe_only` (`IMSG_OBSERVE_ONLY`): record each row to `observe.jsonl` (ids, never text),
   start no turns and send nothing, for a run beside another relay.
 - `docs/install-hermes.md`.

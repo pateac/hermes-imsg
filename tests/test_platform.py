@@ -396,3 +396,28 @@ def test_observe_only_records_every_row_once_and_never_sends(db: FakeDB, tmp_pat
     assert [r["guid"] for r in records] == [r["guid"] for r in db.messages_after(0)]
     assert records[0]["chat_guid"] == chat["guid"] and records[0]["sender"] == COLE
     assert "secret" not in log  # no message text in the record
+
+
+def test_audit_query_runs_against_hermes_real_state_schema(tmp_path: Path) -> None:
+    """The audit reads Hermes's own state.db; here it is made by Hermes v2026.9.24 itself."""
+    from hermes_state import SessionDB
+
+    from hermes_imsg import observe
+
+    db = SessionDB(db_path=tmp_path / "state.db")
+    db.create_session("s1", "bluebubbles")
+    db.append_message("s1", "user", "hi", platform_message_id="GUID-1", timestamp=1_794_000_000.0)
+    db.append_message("s1", "assistant", "hello", timestamp=1_794_000_001.0)
+    db.close()
+    record = tmp_path / "observe.jsonl"
+    line = {
+        "at": "2026-11-11T20:40:00+00:00",
+        "kind": "inbound",
+        "rowid": 1,
+        "guid": "GUID-1",
+        "chat_guid": f"any;-;{COLE}",
+        "sender": COLE,
+    }
+    record.write_text(json.dumps(line) + "\n")
+    result = observe.audit(record, [tmp_path / "state.db"], since=1_793_999_000.0)
+    assert result.delivered == 1 and result.passed and result.extra == []
