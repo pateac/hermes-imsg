@@ -113,10 +113,12 @@ def _hermes_db(path: Path, messages: list[tuple[str, str, str | None, float]]) -
     """The two tables and the columns the audit reads (the real schema: test_platform.py)."""
     conn = sqlite3.connect(path)
     conn.executescript(
-        "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, started_at REAL);"
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, started_at REAL,"
+        " user_id TEXT, chat_id TEXT);"
         "CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,"
         " role TEXT NOT NULL, content TEXT, timestamp REAL NOT NULL, platform_message_id TEXT);"
-        "INSERT INTO sessions VALUES ('bb', 'bluebubbles', 0), ('tg', 'telegram', 0);"
+        f"INSERT INTO sessions VALUES ('bb', 'bluebubbles', 0, '{COLE}', 'any;-;{COLE}'),"
+        " ('tg', 'telegram', 0, NULL, NULL);"
     )
     for source, role, guid, t in messages:
         conn.execute(
@@ -204,3 +206,53 @@ def test_observe_needs_exactly_one_place_to_reach_imsg(tmp_path: Path) -> None:
         main(["observe", "--state-dir", str(tmp_path)])
     with pytest.raises(SystemExit):
         main(["observe", "--local", "--host", "mac", "--state-dir", str(tmp_path)])
+
+
+def test_audit_detail_script_reports_counts_and_no_ids(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    record = _record(
+        tmp_path / "observe.jsonl",
+        [
+            (0, "inbound", "FIRST-LINE"),  # the record's first line; the window starts the next day
+            (90_000, "inbound", "A"),
+            (90_600, "reaction", "R"),
+            (91_000, "inbound", "EXTRA"),
+            (200_000, "inbound", "B"),
+        ],
+    )
+    (tmp_path / "agents" / "p").mkdir(parents=True)
+    _hermes_db(
+        tmp_path / "agents" / "p" / "state.db",
+        [
+            ("bluebubbles", "user", "A", 89_998),
+            ("bluebubbles", "user", "B", 199_997),
+        ],
+    )
+    script = Path(__file__).parent.parent / "scripts" / "audit-detail.py"
+    code = str(Path(__file__).parent.parent)
+    run = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(script),
+            "--code",
+            code,
+            "--record",
+            str(record),
+            "--agents",
+            str(tmp_path / "agents"),
+            "--until",
+            _at(250_000),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    out = run.stdout
+    assert run.returncode == 0, run.stderr
+    assert "missed: 0   doubled: 0   extra: 1" in out and "PASS" in out
+    assert "1  no relay traffic nearby" in out  # A is 1,002 s before it: past the 900 s reach
+    assert "n 2  min 2.0" in out  # seconds from Hermes's time to the record's
+    assert COLE not in out and "EXTRA" not in out and '"A"' not in out  # counts, not rows

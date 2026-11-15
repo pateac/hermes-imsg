@@ -29,6 +29,9 @@ All notable changes to this project are recorded here. The format follows
   standalone process, writing the same record, for a week beside another relay without touching
   the Hermes that is serving. `hermes-imsg audit`: compares the record with the message ids that
   relay handed Hermes (from Hermes's `state.db`, read-only): missed, doubled, extra.
+- `scripts/audit-detail.py`: the observe week in detail, read-only, counts and times only (missed,
+  doubled, extras by likely reason; by day, sender and kind; the record's longest silences; seconds
+  between the record's time and Hermes's). Its headline numbers come from `hermes-imsg audit`.
 - `observe_only` (`IMSG_OBSERVE_ONLY`): record each row to `observe.jsonl` (ids, never text),
   start no turns and send nothing, for a run beside another relay.
 - `docs/install-hermes.md`.
