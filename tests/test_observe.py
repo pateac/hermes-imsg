@@ -256,3 +256,29 @@ def test_audit_detail_script_reports_counts_and_no_ids(tmp_path: Path) -> None:
     assert "1  no relay traffic nearby" in out  # A is 1,002 s before it: past the 900 s reach
     assert "n 2  min 2.0" in out  # seconds from Hermes's time to the record's
     assert COLE not in out and "EXTRA" not in out and '"A"' not in out  # counts, not rows
+
+
+def test_audit_separates_tapbacks_the_relay_passed_on_as_messages(tmp_path: Path) -> None:
+    """Nov 17: Hermes's BlueBubbles adapter let emoji tapbacks through as messages; the
+    record held them as reactions. Those are not misses."""
+    record = _record(
+        tmp_path / "observe.jsonl",
+        [
+            (0, "inbound", "A"),
+            (5, "reaction", "TAPBACK"),
+            (10, "inbound", "B"),
+        ],
+    )
+    db = _hermes_db(
+        tmp_path / "cole.db",
+        [
+            ("bluebubbles", "user", "A", 1),
+            ("bluebubbles", "user", "TAPBACK", 6),
+            ("bluebubbles", "user", "B", 10),
+            ("bluebubbles", "user", "GONE", 8),
+        ],
+    )
+    result = observe.audit(record, [db])
+    assert [(g, k) for g, _, k in result.as_secondary] == [("TAPBACK", "reaction")]
+    assert [g for g, _ in result.missed] == ["GONE"]  # control: a real miss stays a miss
+    assert result.delivered == 4 and not result.passed

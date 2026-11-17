@@ -32,6 +32,10 @@ All notable changes to this project are recorded here. The format follows
 - `scripts/audit-detail.py`: the observe week in detail, read-only, counts and times only (missed,
   doubled, extras by likely reason; by day, sender and kind; the record's longest silences; seconds
   between the record's time and Hermes's). Its headline numbers come from `hermes-imsg audit`.
+- `docs/phase2-week.md`: the week beside BlueBubbles, Nov 10 to 17: nothing missed, nothing
+  doubled, `imsg` a median 0.6 s ahead.
+- The audit reports messages the relay handed Hermes that the record holds as a tapback, edit or
+  poll on their own line, not as missed (BlueBubbles' adapter passes emoji tapbacks on as messages).
 - `observe_only` (`IMSG_OBSERVE_ONLY`): record each row to `observe.jsonl` (ids, never text),
   start no turns and send nothing, for a run beside another relay.
 - `docs/install-hermes.md`.

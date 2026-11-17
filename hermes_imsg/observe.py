@@ -107,6 +107,9 @@ class Audit:
     missed: list[tuple[str, float]] = field(default_factory=list)
     doubled: list[str] = field(default_factory=list)
     extra: list[dict[str, Any]] = field(default_factory=list)
+    # handed over as a message, but the record holds it as a reaction, edit or poll row: the
+    # relay turned it into a turn (Nov 17: emoji tapbacks through Hermes's BlueBubbles adapter)
+    as_secondary: list[tuple[str, float, str]] = field(default_factory=list)
     unreadable_lines: int = 0
 
     @property
@@ -148,6 +151,7 @@ def audit(
     inbound = [r for r in rows if r.get("kind") == "inbound"]
     result.doubled = sorted(g for g, n in Counter(r["guid"] for r in inbound).items() if n > 1)
     recorded = {r["guid"] for r in inbound}
+    secondary_kind = {r["guid"]: r.get("kind", "?") for r in rows if r.get("kind") != "inbound"}
 
     delivered: dict[str, float] = {}  # widened by GRACE; `inside` is the strict window
     for db in hermes_dbs:
@@ -164,9 +168,11 @@ def audit(
             conn.close()
     inside = {g: t for g, t in delivered.items() if since <= t <= until}
     result.delivered = len(inside)
-    result.missed = sorted(
+    not_inbound = sorted(
         ((g, t) for g, t in inside.items() if g not in recorded), key=lambda m: m[1]
     )
+    result.as_secondary = [(g, t, secondary_kind[g]) for g, t in not_inbound if g in secondary_kind]
+    result.missed = [(g, t) for g, t in not_inbound if g not in secondary_kind]
     in_window = [r for r in inbound if since <= r["ts"] <= until]
     result.recorded = len(in_window)
     result.extra = [r for r in in_window if r["guid"] not in delivered]

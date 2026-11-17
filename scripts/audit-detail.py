@@ -149,6 +149,16 @@ def main() -> int:
         for _, ts in result.missed:
             near = any(abs(r["ts"] - ts) <= 600 for r in rows)
             print(f"  {when(ts)}  observer {'up' if near else 'silent'}")
+    as_secondary = getattr(result, "as_secondary", [])  # older checkouts lack it
+    if as_secondary:
+        print(
+            "\nhanded to Hermes as a message, recorded as a reaction, edit or poll"
+            " (the relay made them turns)"
+        )
+        for kind, n in Counter(k for _, _, k in as_secondary).most_common():
+            print(
+                f"  {n:4}  {kind}: " + ", ".join(when(t) for _, t, k in as_secondary if k == kind)
+            )
     if result.doubled:
         print(f"\ndoubled: {len(result.doubled)} message(s) recorded more than once")
 

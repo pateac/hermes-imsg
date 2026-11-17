@@ -101,6 +101,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"missed (handed to Hermes, not recorded): {len(result.missed)}")
     for guid, ts in result.missed:
         print(f"  {_show(ts)}  {guid}")
+    print(
+        f"handed to Hermes as a message, recorded as a reaction, edit or poll: "
+        f"{len(result.as_secondary)} (the relay made them turns)"
+    )
+    for _, ts, kind in result.as_secondary:
+        print(f"  {_show(ts)}  {kind}")
     print(f"doubled (recorded more than once): {len(result.doubled)}")
     for guid in result.doubled:
         print(f"  {guid}")
