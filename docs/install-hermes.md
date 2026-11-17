@@ -69,6 +69,7 @@ platforms:
 | `sends_per_minute` | `IMSG_SENDS_PER_MINUTE` | 30 | Outbound rate limit (bursts of 5) |
 | `max_attachment_mb` | `IMSG_MAX_ATTACHMENT_MB` | 25 | Inbound attachment size cap |
 | `require_mention`, `mention_patterns` | `IMSG_REQUIRE_MENTION`, `IMSG_MENTION_PATTERNS` | off | Group gating, as in Hermes's BlueBubbles adapter |
+| `reply_context` | `IMSG_REPLY_CONTEXT` | off | An inline reply also passes the replied-to bubble's text, and whether that bubble was the agent's. Hermes then stores the message as `[Replying to: "<text>"]` and the text, so anything reading Hermes's transcripts sees the quote. Off, only the replied-to id passes, as with BlueBubbles |
 
 Who may talk to the agent is Hermes's own check: `IMSG_ALLOWED_USERS` (handles) or
 `IMSG_ALLOW_ALL_USERS`.

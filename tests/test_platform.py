@@ -104,6 +104,42 @@ def test_a_dm_becomes_one_event_with_bluebubbles_identity(db: FakeDB, tmp_path: 
     assert event.message_id and event.message_id == db.messages_after(0)[-1]["guid"]
 
 
+@pytest.mark.parametrize("on", [False, True])
+def test_reply_context_only_when_turned_on(db: FakeDB, tmp_path: Path, on: bool) -> None:
+    """Off (the default, as the BlueBubbles adapter): an inline reply passes only the replied-to
+    id. On: also its text, and whether the bubble was ours, which imsg's sender cannot say."""
+    chat = db.add_chat(COLE)
+    adapter, seen = make(db, tmp_path, reply_context=on)
+
+    async def scenario() -> None:
+        await connected(adapter)
+        db.add_message(chat["id"], "Dinner is at six.", is_from_me=True)  # Howard's bubble
+        db.add_message(chat["id"], "Can we do seven?")  # Cole's own, earlier
+        ours, theirs = (r["guid"] for r in db.messages_after(0)[-2:])
+        db.add_message(
+            chat["id"],
+            "ok",
+            reply_to_guid=ours,
+            reply_to_text="Dinner is at six.",
+            reply_to_sender=COLE,
+        )
+        db.add_message(
+            chat["id"], "never mind", reply_to_guid=theirs, reply_to_text="Can we do seven?"
+        )
+        await eventually(lambda: len(seen) == 3)
+        await adapter.disconnect()
+
+    run(scenario())
+    _, to_ours, to_theirs = seen
+    assert to_ours.reply_to_message_id and to_theirs.reply_to_message_id  # the id either way
+    if not on:
+        assert to_ours.reply_to_text is None and to_theirs.reply_to_text is None
+        return
+    assert to_ours.reply_to_text == "Dinner is at six." and to_ours.reply_to_is_own_message
+    assert to_theirs.reply_to_text == "Can we do seven?"
+    assert to_theirs.reply_to_is_own_message is False
+
+
 def test_own_messages_tapbacks_and_polls_start_no_extra_turns(db: FakeDB, tmp_path: Path) -> None:
     chat = db.add_chat(COLE)
     adapter, seen = make(db, tmp_path)

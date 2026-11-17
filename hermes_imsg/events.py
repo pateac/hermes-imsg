@@ -41,6 +41,7 @@ class Inbound:
     text: str
     created_at: str
     reply_to_guid: str | None = None
+    reply_to_text: str | None = None  # the replied-to bubble's text, as imsg resolves it
     attachments: tuple[Attachment, ...] = ()
 
 
@@ -125,5 +126,6 @@ def classify(row: dict[str, Any]) -> Inbound | Secondary | None:
         text=text,
         created_at=_str(row, "created_at"),
         reply_to_guid=_str(row, "reply_to_guid") or _str(row, "thread_originator_guid") or None,
+        reply_to_text=_str(row, "reply_to_text") or None,
         attachments=attachments,
     )

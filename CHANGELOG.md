@@ -14,6 +14,10 @@ All notable changes to this project are recorded here. The format follows
   running a Hermes gateway with the plugin on a stand-in Mac, Nov 17.
 
 ### Added
+- `reply_context` (`IMSG_REPLY_CONTEXT`), off by default: an inline reply also passes the
+  replied-to bubble's text (imsg's `reply_to_text`) and whether that bubble was the agent's own,
+  which the plugin tracks itself because imsg names our own bubble's sender as the other person.
+  Hermes prepends `[Replying to: "..."]` to the stored message, so a host turns it on knowingly.
 - `IMSG_PLATFORM_NAME`: register under another name. With `bluebubbles` the plugin stands in for
   Hermes's BlueBubbles adapter and the host's settings carry over unchanged; unset, Hermes's own
   adapter is back. Checked in a running gateway (v2026.9.24) shaped like a family host (see

@@ -17,6 +17,10 @@ config.yaml `gateway.platforms.imsg.extra` keys, each overridable by env:
   require_mention, mention_patterns    group gating, as the BlueBubbles adapter
   observe_only (IMSG_OBSERVE_ONLY)     record each row to <state_dir>/observe.jsonl, start no
                                        turns and send nothing: for a run beside another relay
+  reply_context (IMSG_REPLY_CONTEXT)   off by default, as Hermes's BlueBubbles adapter: an inline
+                                       reply passes only the replied-to id. On, it also passes that
+                                       bubble's text, and Hermes stores the message as
+                                       '[Replying to: "<text>"]' + the text
 Who may talk to the agent is Hermes's job: IMSG_ALLOWED_USERS / IMSG_ALLOW_ALL_USERS.
 
 IMSG_PLATFORM_NAME, read once at load, registers the platform under another name. With
@@ -117,6 +121,11 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         self.require_mention = str(require).strip().lower() in TRUTHY
         observe = _setting(extra, "observe_only", "IMSG_OBSERVE_ONLY")
         self.observe_only = str(observe).strip().lower() in TRUTHY
+        reply_context = _setting(extra, "reply_context", "IMSG_REPLY_CONTEXT")
+        self.reply_context = str(reply_context).strip().lower() in TRUTHY
+        # Our own bubbles' ids, as seen go by: imsg names a replied-to bubble's sender from its
+        # handle, which for our own bubble is the other person, so "is it ours" is answered here.
+        self._own_guids: dict[str, None] = {}
         raw_patterns = (
             extra["mention_patterns"]
             if "mention_patterns" in extra
@@ -215,6 +224,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         row = note.params.get("message")
         if note.method != "message" or not isinstance(row, dict):
             return
+        if row.get("is_from_me") is True and isinstance(row.get("guid"), str):
+            self._remember_own(row["guid"])
         new_rowid = events.new_rowid(row)
         if new_rowid is not None and new_rowid <= self._cursor.rowid:
             self.counters["duplicates"] += 1  # a replay after reconnect or restart
@@ -272,9 +283,23 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
                 media_urls=media_urls,
                 media_types=media_types,
                 timestamp=_local_time(event.created_at),
+                **self._reply_context(event),
             )
         )
         self.counters["delivered"] += 1
+
+    def _reply_context(self, event: events.Inbound) -> dict[str, Any]:
+        if not (self.reply_context and event.reply_to_guid and event.reply_to_text):
+            return {}
+        return {
+            "reply_to_text": event.reply_to_text,
+            "reply_to_is_own_message": event.reply_to_guid in self._own_guids,
+        }
+
+    def _remember_own(self, guid: str) -> None:
+        self._own_guids[guid] = None
+        if len(self._own_guids) > 2000:  # a restart forgets them all; this bounds a long run
+            del self._own_guids[next(iter(self._own_guids))]
 
     def _strip_wake_word(self, text: str) -> str:
         """Strip a leading wake word only, as the BlueBubbles adapter does."""
@@ -354,6 +379,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
                     success=False, error=result.error, retryable=result.retryable and index == 0
                 )
             message_id = result.message_id
+            if message_id:
+                self._remember_own(message_id)
         return SendResult(success=True, message_id=message_id)
 
     async def send_image(
