@@ -84,7 +84,7 @@ they skip without it, and CI runs them against the pinned tag. See
 |---|---|---|
 | 0 | One hour at a Mac: install `imsg`, status, watch, a poll's votes, one send; the SSH key | [done Nov 5](docs/phase0-check.md) |
 | 1 | `rpc.py`, `transport.py`, the fake `imsg`, CI | done Nov 1 |
-| 2 | v0.1 "text and reads": platform, events, cursor, send, status; a week beside BlueBubbles | **built Nov 6**; the week's run is next |
+| 2 | v0.1 "text and reads": platform, events, cursor, send, status; a week beside BlueBubbles | built Nov 6; [the week beside BlueBubbles](docs/phase2-week.md) passed Nov 17 |
 | 3 | Switch sends over, one profile then all | |
 | 4 | Publish v0.1: docs with screenshots, PyPI, the Hermes plugin catalog | |
 | 5 | v0.2 "the helper": reactions, threaded replies, native polls (needs SIP off on the Mac) | |
