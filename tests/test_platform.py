@@ -227,6 +227,66 @@ def test_send_results(db: FakeDB, tmp_path: Path) -> None:
     assert "bold" in plain and "https://example.com" in plain  # the link target survives
 
 
+def test_a_reply_goes_as_bubbles_as_bluebubbles_sends_it(db: FakeDB, tmp_path: Path) -> None:
+    """Nov 17, step 3.1: Hermes hands send() the model's text as written, and under the name
+    bluebubbles tells the model each paragraph becomes its own bubble. So send() strips the
+    markdown and splits paragraphs itself, as Hermes's BlueBubbles adapter does."""
+    chat = db.add_chat(COLE)
+    adapter, _ = make(db, tmp_path)
+    long_paragraph = "word " * 1000  # 5,000 characters: two bubbles, no "(1/2)"
+
+    async def scenario() -> Any:
+        await connected(adapter)
+        before = len(db.calls("send"))
+        result = await adapter.send(
+            chat["guid"],
+            f"**Dinner** is at six.\n\n  \nBring [the list](https://e.com).\n\n{long_paragraph}",
+        )
+        await adapter.disconnect()
+        return result, [c["params"]["text"] for c in db.calls("send")[before:]]
+
+    result, texts = run(scenario())
+    assert result.success, result.error
+    assert texts[:2] == [
+        "Dinner is at six.",
+        adapter.format_message("Bring [the list](https://e.com)."),
+    ]
+    assert len(texts) == 4 and not any("**" in t or "(1/2)" in t or "(2/2)" in t for t in texts)
+    assert " ".join(texts[2:]).split() == long_paragraph.split()  # nothing lost at the split
+
+
+def test_the_platform_name_can_stand_in_for_bluebubbles(tmp_path: Path) -> None:
+    """IMSG_PLATFORM_NAME=bluebubbles (step 3.1's config-only trial): the host's settings, allow
+    list and home channel under BlueBubbles' names apply; the cursor stays in <home>/imsg."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import hermes_imsg.platform as p\n"
+        "from gateway.platform_registry import platform_registry as r, PlatformEntry as E\n"
+        "class Ctx:\n"
+        "    def register_platform(self, **kw):\n"
+        "        r.register(E(source='plugin', plugin_name='imsg', **kw))\n"
+        "p.register(Ctx())\n"
+        "e = r.get(p.NAME)\n"
+        "a = p.ImsgAdapter(type('C', (), {'extra': {}})())\n"
+        "print(p.NAME, e.allowed_users_env, e.cron_deliver_env_var, a.platform.value, p.STATE)\n"
+    )
+    env = {**os.environ, "HERMES_HOME": str(tmp_path), "IMSG_PLATFORM_NAME": "BlueBubbles"}
+    out = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == [
+        "bluebubbles",
+        "BLUEBUBBLES_ALLOWED_USERS",
+        "BLUEBUBBLES_HOME_CHANNEL",
+        "bluebubbles",
+        "imsg",
+    ]
+    env.pop("IMSG_PLATFORM_NAME")  # control: unset, it is imsg again
+    out = subprocess.run([sys.executable, "-c", probe], env=env, capture_output=True, text=True)
+    assert out.stdout.split() == ["imsg", "IMSG_ALLOWED_USERS", "IMSG_HOME_CHANNEL", "imsg", "imsg"]
+
+
 def test_group_messages_need_a_mention_when_configured(db: FakeDB, tmp_path: Path) -> None:
     group = db.add_chat("chat123", participants=[COLE, "+15551230002"], is_group=True, name="Fam")
     adapter, seen = make(db, tmp_path, require_mention=True)

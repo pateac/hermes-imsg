@@ -18,6 +18,11 @@ config.yaml `gateway.platforms.imsg.extra` keys, each overridable by env:
   observe_only (IMSG_OBSERVE_ONLY)     record each row to <state_dir>/observe.jsonl, start no
                                        turns and send nothing: for a run beside another relay
 Who may talk to the agent is Hermes's job: IMSG_ALLOWED_USERS / IMSG_ALLOW_ALL_USERS.
+
+IMSG_PLATFORM_NAME, read once at load, registers the platform under another name. With
+`bluebubbles` it stands in for Hermes's BlueBubbles adapter: the host's routes, allow list
+(BLUEBUBBLES_ALLOWED_USERS), home channel and settings under `platforms.bluebubbles` stay as they
+are, and unsetting it goes back. The cursor's folder is `imsg` under any name.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from pathlib import Path
@@ -58,12 +64,16 @@ from .transport import LocalTransport, SshTransport, Transport, TransportError
 
 log = logging.getLogger(__name__)
 
-NAME = "imsg"
+STATE = "imsg"  # <hermes home>/imsg: the cursor, whatever the platform is called
+NAME = os.environ.get("IMSG_PLATFORM_NAME", "").strip().lower() or STATE
+ENV = NAME.upper()  # IMSG_ALLOWED_USERS, or BLUEBUBBLES_ALLOWED_USERS under that name
 TRUTHY = {"1", "true", "yes", "on"}
 # Hermes's wake words, as its BlueBubbles adapter uses for `require_mention`.
 DEFAULT_MENTION_PATTERNS = [r"(?<![\w@])@?hermes\s+agent\b[,:\-]?", r"(?<![\w@])@?hermes\b[,:\-]?"]
 SecondaryListener = Callable[[events.Secondary], Awaitable[None]]
 OBSERVE_ONLY = "imsg is observe-only: nothing is sent"
+PARAGRAPH = re.compile(r"\n\s*\n")
+PAGE_SUFFIX = re.compile(r"\s*\(\d+/\d+\)$")  # Hermes's "(1/3)"; iMessage bubbles need none
 
 
 def _setting(extra: dict[str, Any], key: str, env: str, default: Any = "") -> Any:
@@ -144,7 +154,7 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         where = self.transport.describe()
         if not self._acquire_platform_lock(NAME, where, f"imsg via {where}"):
             return False
-        state_dir = Path(self.state_dir) if self.state_dir else Path(get_hermes_home()) / NAME
+        state_dir = Path(self.state_dir) if self.state_dir else Path(get_hermes_home()) / STATE
         self._cursor = Cursor(state_dir / "cursor.json")
         client = RpcClient(self.transport, on_connect=self._subscribe)
         client.start()
@@ -306,6 +316,21 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
     def format_message(self, content: str) -> str:
         return str(strip_markdown(content, keep_link_targets=True))  # Messages renders no markdown
 
+    def bubbles(self, content: str) -> list[str]:
+        """As Hermes's BlueBubbles adapter sends a reply (and tells the model it will): markdown
+        stripped, each paragraph its own bubble, one too long split without "(1/3)" suffixes.
+        Hermes calls send() with the model's text as written; formatting is the adapter's job."""
+        text = self.format_message(content)
+        paragraphs = [p.strip() for p in PARAGRAPH.split(text) if p.strip()] or [text]
+        out: list[str] = []
+        for para in paragraphs:
+            if len(para) <= self.MAX_MESSAGE_LENGTH:
+                out.append(para)
+            else:
+                pieces = self.truncate_message(para, self.MAX_MESSAGE_LENGTH)
+                out += [PAGE_SUFFIX.sub("", piece) for piece in pieces]
+        return out
+
     async def send(
         self,
         chat_id: str,
@@ -319,7 +344,7 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
         if self._client is None:
             return SendResult(success=False, error="Not connected", retryable=True)
         message_id = None
-        for index, chunk in enumerate(self.truncate_message(content, self.MAX_MESSAGE_LENGTH)):
+        for index, chunk in enumerate(self.bubbles(content)):
             await self.limiter.wait()
             result = await outbound.send(self._client, chat_id, text=chunk)
             if not result.ok:
@@ -404,7 +429,8 @@ class ImsgAdapter(BasePlatformAdapter):  # type: ignore[misc]  # Hermes ships no
             self.counters["send_failures"] += 1
             return SendResult(success=False, error=f"could not place the file on the Mac: {exc}")
         await self.limiter.wait()
-        result = await outbound.send(self._client, chat_id, text=caption, file=remote)
+        text = self.format_message(caption) if caption else caption
+        result = await outbound.send(self._client, chat_id, text=text, file=remote)
         if not result.ok:
             self.counters["send_failures"] += 1
         return SendResult(
@@ -462,7 +488,7 @@ def _env_enablement() -> dict[str, Any] | None:
             ("IMSG_TRANSPORT", "transport", None),
             ("IMSG_PATH", "imsg_path", None),
         ),
-        home_env="IMSG_HOME_CHANNEL",
+        home_env=f"{ENV}_HOME_CHANNEL",
     )
     return seeded
 
@@ -479,14 +505,15 @@ def register(ctx: Any) -> None:
         required_env=[],
         install_hint="Needs imsg on a Mac signed into Messages; see the hermes-imsg README",
         env_enablement_fn=_env_enablement,
-        cron_deliver_env_var="IMSG_HOME_CHANNEL",
-        allowed_users_env="IMSG_ALLOWED_USERS",
-        allow_all_env="IMSG_ALLOW_ALL_USERS",
+        cron_deliver_env_var=f"{ENV}_HOME_CHANNEL",
+        allowed_users_env=f"{ENV}_ALLOWED_USERS",
+        allow_all_env=f"{ENV}_ALLOW_ALL_USERS",
         max_message_length=ImsgAdapter.MAX_MESSAGE_LENGTH,
         emoji="💬",
         pii_safe=True,  # chat and user ids are phone numbers and emails
         platform_hint=(
             "You are chatting over iMessage. Messages does not render markdown: write plain "
-            "text. Bare URLs become links. Reactions and threaded replies are not available."
+            "text. Each paragraph (separated by a blank line) arrives as its own bubble. Bare "
+            "URLs become links. Reactions and threaded replies are not available."
         ),
     )

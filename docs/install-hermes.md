@@ -73,6 +73,37 @@ platforms:
 Who may talk to the agent is Hermes's own check: `IMSG_ALLOWED_USERS` (handles) or
 `IMSG_ALLOW_ALL_USERS`.
 
+## Standing in for BlueBubbles
+
+A host already set up for Hermes's BlueBubbles adapter can switch without changing its config:
+start Hermes with `IMSG_PLATFORM_NAME=bluebubbles`, enable the plugin, and add the plugin's keys
+(`host`, `identity_file`, `ssh_config`, `imsg_path`) to the existing `platforms.bluebubbles.extra`.
+Hermes looks for a plugin before its built-in adapters, so the plugin answers under that name and
+everything keyed on it stays as it is: profile routes, `allow_from`, `allow_admin_from` and the
+command lists, `require_mention`, `BLUEBUBBLES_ALLOWED_USERS` and `BLUEBUBBLES_HOME_CHANNEL`, the
+toolsets, and conversations already filed under `bluebubbles`. Going back is unsetting the variable
+and restarting: Hermes's own adapter takes the name again and the plugin starts nothing. The
+cursor stays in `<hermes home>/imsg` under either name.
+
+Checked on Nov 17 in a running gateway (Hermes v2026.9.24) against the fake `imsg`, with a home
+shaped like a family host's (the default profile runs the platform and routes made-up people to
+their own profiles; the allow list as `allow_from`; each person's home channel in their own
+profile's `.env`; a stub model):
+
+| Check | Result |
+|---|---|
+| The gateway starts the plugin under `bluebubbles`, not the built-in adapter | yes; one `imsg` connection for every profile |
+| A person's text reaches their profile and its reply goes back to their chat | yes, once each |
+| Senders not in `allow_from` | dropped by Hermes, as before |
+| A reply in markdown with two paragraphs | stripped, two bubbles (after the fix in the changelog) |
+| A scheduled job in a person's profile delivering to `bluebubbles` | reached their own chat through the plugin, on the gateway's connection |
+| Unset `IMSG_PLATFORM_NAME` | Hermes's BlueBubbles adapter is back; `imsg` is never started |
+
+Two things that are Hermes's own and the same under either adapter: a group message is admitted
+only by `group_allow_from` (with none set, groups are not answered), and `hermes cron run` from a
+shell runs the job in that shell's process, where a profile without its own `platforms.bluebubbles`
+block cannot deliver; scheduled runs inside the gateway can.
+
 ## A week beside another relay (observe only)
 
 To check what the plugin sees against a relay that is already answering (BlueBubbles, say) without
@@ -138,7 +169,8 @@ middle of the week to keep the edges out of it.
 - **Nothing missed, nothing doubled.** A cursor (`<state_dir>/cursor.json`) records the last row
   handed to Hermes. On start and after any reconnect, `imsg` replays every row after it; replays
   at or below it are dropped. The very first start begins at the newest message, with no history.
-- **Sends** are plain text (markdown stripped), split at 4,000 characters, and rate limited. A
+- **Sends** are plain text (markdown stripped), one bubble per paragraph (a paragraph over 4,000
+  characters is split), and rate limited. A
   send that may have reached the recipient is never retried.
 - **Files both ways.** Inbound photos, audio and documents are copied into Hermes's media cache
   (over SSH through the gate's `fetch`; the Mac's copies are never moved). Outbound images,

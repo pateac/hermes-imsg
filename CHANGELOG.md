@@ -6,7 +6,18 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Sends were the model's raw text: Hermes hands `send()` the reply as written and leaves the
+  formatting to the adapter, so markdown reached Messages as typed. `send()` now strips it and
+  sends each paragraph as its own bubble, as Hermes's BlueBubbles adapter does (a paragraph over
+  4,000 characters is split without "(1/2)" suffixes); captions are stripped too. Found by
+  running a Hermes gateway with the plugin on a stand-in Mac, Nov 17.
+
 ### Added
+- `IMSG_PLATFORM_NAME`: register under another name. With `bluebubbles` the plugin stands in for
+  Hermes's BlueBubbles adapter and the host's settings carry over unchanged; unset, Hermes's own
+  adapter is back. Checked in a running gateway (v2026.9.24) shaped like a family host (see
+  `docs/install-hermes.md`, "Standing in for BlueBubbles").
 - The Hermes platform plugin `imsg` (`hermes_imsg.platform`), for text and reads, tested against
   Hermes v2026.9.24: one turn per message from someone else; the agent's own sends, tapbacks,
   edits, unsends and poll rows start none (tapbacks, edits and polls go to
